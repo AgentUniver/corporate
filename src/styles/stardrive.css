@@ -138,3 +138,14 @@ html, body {
 .hero-glow-title {
   text-shadow: 0 0 80px rgba(16, 185, 129, 0.35);
 }
+
+/* Portrait Orientation Responsive Adaptations */
+@media (orientation: portrait) {
+  body {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .hero-glow-title {
+    word-break: break-word;
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "network": "sepolia",
+  "chainId": 11155111,
+  "deployedAt": "2026-09-02T10:46:12.354Z",
+  "deployer": "0xBd00c6C80832784418E620fb6FcDf5442424caD3",
+  "treasury": "0xBd00c6C80832784418E620fb6FcDf5442424caD3",
+  "contracts": {
+    "GenesisDeveloperBadge": "0x3CBEfd090AE758fEFB68c5D562A63e0688c4DD31",
+    "AFNCommissionSplitter": "0x62CdE41CB588Da5d9D748D6679e928b955264A43"
+  }
+}

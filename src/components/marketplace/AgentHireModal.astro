@@ -1,5 +1,8 @@
 ---
-// AgentHireModal.astro - Hire Agent & Task Dispatch Modal
+// AgentHireModal.astro - Hire Agent & Task Dispatch Modal (Modular Architecture)
+import ReauthOverrunGate from './hire/ReauthOverrunGate.astro';
+import EstimateGatePanel from './hire/EstimateGatePanel.astro';
+import DeliveryResultCard from './hire/DeliveryResultCard.astro';
 ---
 
 <div 
@@ -10,14 +13,14 @@
     id="hire-modal-content"
     class="relative w-full max-w-xl bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl shadow-emerald-950/50 overflow-hidden"
   >
-    <!-- Glow -->
+    <!-- Background Glow -->
     <div class="absolute -top-32 -right-32 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
     <!-- Close Button -->
     <button 
       id="btn-close-hire"
       type="button"
-      class="absolute top-5 right-5 w-8 h-8 rounded-full bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition"
+      class="absolute top-5 right-5 w-8 h-8 rounded-full bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition cursor-pointer"
       aria-label="Close"
     >
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -33,20 +36,80 @@
       <div>
         <div class="flex items-center gap-2">
           <h3 id="hire-agent-name" class="text-xl font-bold text-white tracking-tight">Agent Name</h3>
-          <span class="px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-semibold">
-            Verified ✓
+          <span class="px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-semibold tracking-wide">
+            VERIFIED
           </span>
         </div>
         <p id="hire-agent-subdomain" class="text-xs font-mono text-slate-400 mt-0.5">subdomain.agentuniver.com</p>
       </div>
     </div>
 
-    <!-- Form -->
+    <!-- Re-Authorization Prompt Gate (>15% Overrun Protection) -->
+    <ReauthOverrunGate />
+
+    <!-- Result-Based Trust & SLA Banner (dynamically shown) -->
+    <div id="hire-result-banner" class="hidden mb-4 p-4 rounded-2xl bg-cyan-950/40 border border-cyan-500/30 text-xs space-y-2">
+      <div class="flex items-center justify-between">
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-bold text-[11px]">
+          <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+          Result-Based Workforce Model
+        </span>
+        <span id="hire-sla-badge" class="text-slate-400 text-[11px] font-mono">SLA Guarantee</span>
+      </div>
+      <p id="hire-sla-desc" class="text-slate-300 text-xs leading-relaxed font-sans"></p>
+      <div class="grid grid-cols-3 gap-2 pt-2 border-t border-cyan-900/40 text-[11px]">
+        <div class="p-2 rounded-xl bg-slate-900/80 border border-slate-800 text-center">
+          <span class="text-slate-400 block text-[10px] uppercase">Accuracy</span>
+          <span id="hire-trust-accuracy" class="text-cyan-300 font-mono font-bold text-sm">--%</span>
+        </div>
+        <div class="p-2 rounded-xl bg-slate-900/80 border border-slate-800 text-center">
+          <span class="text-slate-400 block text-[10px] uppercase">Repeat Hire</span>
+          <span id="hire-trust-repeat" class="text-emerald-400 font-mono font-bold text-sm">--%</span>
+        </div>
+        <div class="p-2 rounded-xl bg-slate-900/80 border border-slate-800 text-center">
+          <span class="text-slate-400 block text-[10px] uppercase">Delivered Units</span>
+          <span id="hire-trust-deliveries" class="text-white font-mono font-bold text-sm">--</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Hire Form -->
     <form id="form-hire-task" class="space-y-4">
       <input type="hidden" id="hire-input-agent-id" name="agentId" />
       <input type="hidden" id="hire-input-agent-name" name="agentName" />
       <input type="hidden" id="hire-input-subdomain" name="subdomain" />
       <input type="hidden" id="hire-input-base-price" name="basePrice" value="0.10" />
+      <input type="hidden" id="hire-input-pricing-model" name="pricingModel" value="task_based" />
+      <input type="hidden" id="hire-input-unit-price" name="unitPrice" value="0.10" />
+      <input type="hidden" id="hire-input-estimated-compute" name="estimatedCompute" value="0.05" />
+      <input type="hidden" id="hire-input-loop-steps" name="loopSteps" value="6" />
+      <input type="hidden" id="hire-input-urgency-mult" name="urgencyMultiplier" value="1.0" />
+      <input type="hidden" id="hire-input-ceiling-cap" name="ceilingCap" value="0.11" />
+
+      <!-- Result-Based Target Quantity (dynamically shown) -->
+      <div id="hire-result-quantity-group" class="hidden space-y-1.5">
+        <div class="flex justify-between items-center">
+          <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
+            Target Order Volume (<span id="hire-label-metric" class="text-cyan-400 font-bold">Units</span>)
+          </label>
+          <span id="hire-unit-rate-tag" class="text-xs font-mono text-cyan-300 bg-cyan-950/60 border border-cyan-800/60 px-2 py-0.5 rounded-lg">$0.50 / unit</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <input 
+            type="number" 
+            id="hire-input-quantity" 
+            min="10" 
+            max="50000" 
+            step="50" 
+            value="500" 
+            class="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 text-white text-sm font-mono outline-none transition"
+          />
+        </div>
+        <p class="text-[11px] text-slate-500">Enterprise Escrow holds settlement funds until deliverables pass SLA verification criteria.</p>
+      </div>
+
+      <!-- Pre-Quote Estimation Panel (Subcomponent) -->
+      <EstimateGatePanel />
 
       <!-- Task Title -->
       <div>
@@ -62,9 +125,9 @@
         />
       </div>
 
-      <!-- Task Instructions / Prompt -->
+      <!-- Task Instructions / Directives -->
       <div>
-        <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+        <label id="hire-label-desc" class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
           Task Directives & Prompt Parameters
         </label>
         <textarea 
@@ -85,17 +148,17 @@
           <button 
             type="button" 
             id="tab-mode-web2"
-            class="px-3 py-2 rounded-xl text-xs font-bold border border-emerald-500 bg-emerald-500/10 text-emerald-400 flex items-center justify-center gap-1.5 transition"
+            class="px-3 py-2 rounded-xl text-xs font-bold border border-emerald-500 bg-emerald-500/10 text-emerald-400 flex items-center justify-center gap-1.5 transition cursor-pointer"
           >
-            <span>⚡ Web2 Direct</span>
+            <span>Web2 Direct</span>
             <span class="text-[10px] opacity-75">(Zero Gas)</span>
           </button>
           <button 
             type="button" 
             id="tab-mode-web3"
-            class="px-3 py-2 rounded-xl text-xs font-bold border border-slate-800 bg-slate-900 text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1.5 transition"
+            class="px-3 py-2 rounded-xl text-xs font-bold border border-slate-800 bg-slate-900 text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1.5 transition cursor-pointer"
           >
-            <span>💎 Web3 On-Chain</span>
+            <span>Web3 On-Chain</span>
             <span class="text-[10px] opacity-75">(Genesis 0%)</span>
           </button>
         </div>
@@ -104,16 +167,16 @@
       <!-- Pricing & Settlement breakdown -->
       <div class="p-4 rounded-2xl bg-slate-950/60 border border-slate-800/80 space-y-2 text-xs">
         <div class="flex justify-between text-slate-400">
-          <span>Agent Execution Cost:</span>
+          <span id="hire-label-cost">Agent Execution Cost:</span>
           <span id="hire-display-cost" class="font-mono text-slate-200 font-semibold">$0.10 USD</span>
         </div>
         <div class="flex justify-between text-slate-400">
-          <span>Platform Fee (<span id="hire-badge-status">Standard 10%</span>):</span>
+          <span>Platform Take Rate (<span id="hire-badge-status">Standard 10%</span>):</span>
           <span id="hire-display-fee" class="font-mono text-emerald-400 font-semibold">$0.00 USD (0% Genesis Waiver)</span>
         </div>
         <div id="hire-web3-wallet-status" class="hidden py-1 px-2.5 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-[11px] text-emerald-300 flex items-center justify-between">
           <span>Connected EVM: <span id="hire-wallet-addr" class="font-mono font-bold text-white">0x...</span></span>
-          <span class="font-bold text-amber-400">🎖️ Badge Active</span>
+          <span class="font-bold text-amber-400">[Badge Active]</span>
         </div>
         <div class="flex justify-between pt-2 border-t border-slate-800/60 text-sm font-bold text-white">
           <span>Total Settlement Budget:</span>
@@ -125,7 +188,7 @@
       <button 
         type="submit"
         id="btn-submit-hire"
-        class="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold text-sm transition shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 active:scale-[0.98]"
+        class="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold text-sm transition shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 active:scale-[0.98] cursor-pointer"
       >
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -134,257 +197,12 @@
       </button>
     </form>
 
-    <!-- Success state -->
-    <div id="hire-success-view" class="hidden text-center py-6">
-      <div class="w-14 h-14 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto mb-4 text-2xl">
-        ✓
-      </div>
-      <h4 class="text-lg font-bold text-white">Task Dispatched Successfully!</h4>
-      <p class="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-        Order <span id="hire-order-id" class="font-mono text-emerald-400 font-bold"></span> has been submitted to the ACP 2.0 network.
-      </p>
-      <div class="mt-6 flex justify-center gap-3">
-        <button 
-          id="btn-done-hire"
-          type="button"
-          class="px-6 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold transition"
-        >
-          Close
-        </button>
-      </div>
-    </div>
+    <!-- Success state & Live Results View (Subcomponent) -->
+    <DeliveryResultCard />
   </div>
 </div>
 
-<script is:inline>
-  var currentSettlementMode = 'web2';
-
-  function setupSettlementTabs() {
-    var tabWeb2 = document.getElementById('tab-mode-web2');
-    var tabWeb3 = document.getElementById('tab-mode-web3');
-    var walletStatus = document.getElementById('hire-web3-wallet-status');
-    var walletAddr = document.getElementById('hire-wallet-addr');
-    var btnSubmitText = document.getElementById('btn-submit-hire-text');
-
-    function updateTabs() {
-      if (currentSettlementMode === 'web2') {
-        if (tabWeb2) {
-          tabWeb2.className = 'px-3 py-2 rounded-xl text-xs font-bold border border-emerald-500 bg-emerald-500/10 text-emerald-400 flex items-center justify-center gap-1.5 transition';
-        }
-        if (tabWeb3) {
-          tabWeb3.className = 'px-3 py-2 rounded-xl text-xs font-bold border border-slate-800 bg-slate-900 text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1.5 transition';
-        }
-        if (walletStatus) walletStatus.classList.add('hidden');
-        if (btnSubmitText) btnSubmitText.textContent = 'Confirm & Dispatch Task Order (Web2)';
-      } else {
-        if (tabWeb3) {
-          tabWeb3.className = 'px-3 py-2 rounded-xl text-xs font-bold border border-emerald-500 bg-emerald-500/10 text-emerald-400 flex items-center justify-center gap-1.5 transition';
-        }
-        if (tabWeb2) {
-          tabWeb2.className = 'px-3 py-2 rounded-xl text-xs font-bold border border-slate-800 bg-slate-900 text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1.5 transition';
-        }
-        var savedWallet = localStorage.getItem('agentuniver_wallet');
-        if (savedWallet && walletAddr && walletStatus) {
-          walletAddr.textContent = savedWallet.substring(0, 6) + '...' + savedWallet.substring(savedWallet.length - 4);
-          walletStatus.classList.remove('hidden');
-        }
-        if (btnSubmitText) btnSubmitText.textContent = 'Sign & Dispatch via Smart Contract (Web3)';
-      }
-    }
-
-    if (tabWeb2) {
-      tabWeb2.onclick = function() {
-        currentSettlementMode = 'web2';
-        updateTabs();
-      };
-    }
-    if (tabWeb3) {
-      tabWeb3.onclick = async function() {
-        currentSettlementMode = 'web3';
-        if (typeof window.ethereum !== 'undefined' && !localStorage.getItem('agentuniver_wallet')) {
-          try {
-            var accs = await window.ethereum.request({ method: 'eth_requestAccounts' });
-            if (accs && accs.length > 0) {
-              localStorage.setItem('agentuniver_wallet', accs[0]);
-            }
-          } catch (e) {}
-        }
-        updateTabs();
-      };
-    }
-    updateTabs();
-  }
-
-  function openHireModal(agentData) {
-    var modal = document.getElementById('hire-modal');
-    var form = document.getElementById('form-hire-task');
-    var successView = document.getElementById('hire-success-view');
-
-    if (!modal) return;
-    
-    if (form) {
-      form.classList.remove('hidden');
-      form.reset();
-    }
-    if (successView) successView.classList.add('hidden');
-
-    var iconEl = document.getElementById('hire-agent-icon');
-    var nameEl = document.getElementById('hire-agent-name');
-    var subEl = document.getElementById('hire-agent-subdomain');
-    var inputId = document.getElementById('hire-input-agent-id');
-    var inputName = document.getElementById('hire-input-agent-name');
-    var inputSub = document.getElementById('hire-input-subdomain');
-    var inputPrice = document.getElementById('hire-input-base-price');
-    var displayCost = document.getElementById('hire-display-cost');
-    var displayTotal = document.getElementById('hire-display-total');
-
-    if (iconEl) iconEl.textContent = agentData.avatarIcon || 'AU';
-    if (nameEl) nameEl.textContent = agentData.name || 'Agent';
-    if (subEl) subEl.textContent = agentData.subdomain || 'agentuniver.com';
-    if (inputId) inputId.value = agentData.id || '';
-    if (inputName) inputName.value = agentData.name || '';
-    if (inputSub) inputSub.value = agentData.subdomain || '';
-    
-    var price = agentData.hirePrice || 0.10;
-    if (inputPrice) inputPrice.value = price.toString();
-    if (displayCost) displayCost.textContent = '$' + Number(price).toFixed(2) + ' USD';
-    if (displayTotal) displayTotal.textContent = '$' + Number(price).toFixed(2) + ' USD';
-
-    setupSettlementTabs();
-    modal.classList.remove('hidden');
-  }
-
-  function closeHireModal() {
-    var modal = document.getElementById('hire-modal');
-    if (modal) modal.classList.add('hidden');
-  }
-
-  // Expose directly on global window
-  window.openHireModal = openHireModal;
-  window.closeHireModal = closeHireModal;
-
-  window.addEventListener('open_hire_modal', function(e) {
-    if (e.detail) {
-      openHireModal(e.detail);
-    }
-  });
-
-  // Global event delegation
-  document.addEventListener('click', function(e) {
-    var target = e.target;
-    if (!target) return;
-
-    if (target.closest('#btn-close-hire') || target.closest('#btn-done-hire')) {
-      closeHireModal();
-      return;
-    }
-
-    var modal = document.getElementById('hire-modal');
-    if (target === modal) {
-      closeHireModal();
-      return;
-    }
-
-    var hireBtn = target.closest('.btn-hire-agent');
-    if (hireBtn) {
-      e.preventDefault();
-      e.stopPropagation();
-      var raw = hireBtn.getAttribute('data-agent-data');
-      if (raw) {
-        try {
-          var data = JSON.parse(raw);
-          openHireModal(data);
-        } catch (err) {
-          console.error(err);
-        }
-      }
-    }
-  });
-
-  // Handle Form Submission
-  document.addEventListener('submit', async function(e) {
-    var form = e.target;
-    if (form && form.id === 'form-hire-task') {
-      e.preventDefault();
-      var btnSubmit = document.getElementById('btn-submit-hire');
-      if (btnSubmit) btnSubmit.setAttribute('disabled', 'true');
-
-      var agentId = document.getElementById('hire-input-agent-id').value;
-      var agentName = document.getElementById('hire-input-agent-name').value;
-      var subdomain = document.getElementById('hire-input-subdomain').value;
-      var title = document.getElementById('hire-input-title').value;
-      var desc = document.getElementById('hire-input-desc').value;
-      var budget = parseFloat(document.getElementById('hire-input-base-price').value || '0.10');
-      var wallet = localStorage.getItem('agentuniver_wallet') || null;
-
-      var orderId = 'ord-' + Math.random().toString(36).substring(2, 10);
-      var orderData = {
-        id: orderId,
-        agentId: agentId,
-        agentName: agentName,
-        subdomain: subdomain,
-        taskTitle: title,
-        taskDescription: desc,
-        budgetUsd: budget,
-        platformFeeUsd: 0.00,
-        status: 'processing',
-        createdAt: new Date().toISOString(),
-        userEmail: wallet ? (wallet.substring(0, 8) + '@web3.agentuniver.com') : 'guest@agentuniver.com',
-        parameters: {
-          settlementMode: currentSettlementMode,
-          walletAddress: wallet,
-          genesisBadgeWaived: true,
-          protocol: 'ACP 2.0'
-        }
-      };
-
-      // Web3 On-Chain Signature / Escrow Simulation
-      if (currentSettlementMode === 'web3' && typeof window.ethereum !== 'undefined') {
-        try {
-          var msg = 'AgentUniver ACP 2.0 Task Dispatch\\nOrder ID: ' + orderId + '\\nAgent: ' + agentName + '\\nBudget: $' + budget + ' USD\\n0% Genesis Developer Fee Waived';
-          await window.ethereum.request({
-            method: 'personal_sign',
-            params: [msg, wallet || (await window.ethereum.request({ method: 'eth_accounts' }))[0]]
-          });
-        } catch (signErr) {
-          console.warn('Web3 signature skipped or cancelled:', signErr);
-        }
-      }
-
-      // Save to localStorage as local backup
-      try {
-        var orders = JSON.parse(localStorage.getItem('agentuniver_hired_tasks') || '[]');
-        orders.unshift(orderData);
-        localStorage.setItem('agentuniver_hired_tasks', JSON.stringify(orders));
-      } catch (err) {}
-
-      // Direct REST API call to Supabase
-      var supabaseUrl = 'https://lbkhvciymyzzjijuhbri.supabase.co';
-      var supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxia2h2Y2l5bXl6emppanVoYnJpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgxOTczMDMsImV4cCI6MjEwMzc3MzMwM30.1BWGX2qw-GoFTYe_P5Yo0CK2SlDhL3SfoP5P09Hxib4';
-
-      try {
-        fetch(supabaseUrl + '/rest/v1/agent_tasks', {
-          method: 'POST',
-          headers: {
-            'apikey': supabaseAnonKey,
-            'Authorization': 'Bearer ' + supabaseAnonKey,
-            'Content-Type': 'application/json',
-            'Prefer': 'return=representation'
-          },
-          body: JSON.stringify(orderData)
-        }).catch(function(err) {
-          console.warn('Supabase post notice:', err);
-        });
-      } catch (err) {}
-
-      // Show Success View
-      form.classList.add('hidden');
-      var successView = document.getElementById('hire-success-view');
-      if (successView) successView.classList.remove('hidden');
-      var orderIdEl = document.getElementById('hire-order-id');
-      if (orderIdEl) orderIdEl.textContent = '#' + orderId + (currentSettlementMode === 'web3' ? ' (On-Chain)' : '');
-
-      if (btnSubmit) btnSubmit.removeAttribute('disabled');
-    }
-  });
+<script>
+  import { initHireModal } from '../../lib/marketplace/hireController';
+  initHireModal();
 </script>

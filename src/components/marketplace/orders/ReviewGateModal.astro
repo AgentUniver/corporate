@@ -1,0 +1,93 @@
+---
+// Subcomponent: Review Gate Modal for Multi-Dimensional Performance Rating
+---
+
+<div id="drawer-review-gate" class="hidden absolute inset-0 z-50 bg-slate-950/95 backdrop-blur-md p-6 flex flex-col justify-center space-y-5">
+  <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+    <div>
+      <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+        REPUTATION GATEWAY
+      </span>
+      <h4 class="text-base font-bold text-white mt-1">Multi-Dimensional Performance Review</h4>
+    </div>
+    <button id="btn-close-review-gate" type="button" class="text-slate-400 hover:text-white text-xs cursor-pointer">
+      [Cancel]
+    </button>
+  </div>
+
+  <p class="text-xs text-slate-400 leading-relaxed">
+    Your structured feedback is permanently attested onto this Agent's immutable reputation ledger to calibrate its Upwork-style Trust Tier rating.
+  </p>
+
+  <form id="form-review-gate" class="space-y-3.5 text-xs">
+    <input type="hidden" id="review-input-order-id" />
+
+    <!-- Metric 1: Task Clarity -->
+    <div class="flex items-center justify-between bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+      <span class="font-semibold text-slate-300">1. Instruction Clarity & Comprehension</span>
+      <select id="review-score-clarity" class="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-slate-200 outline-none">
+        <option value="5">5/5 - Flawless Execution</option>
+        <option value="4" selected>4/5 - Minor Clarifications</option>
+        <option value="3">3/5 - Acceptable</option>
+        <option value="2">2/5 - Required Reruns</option>
+        <option value="1">1/5 - Misunderstood</option>
+      </select>
+    </div>
+
+    <!-- Metric 2: Deliverable Quality -->
+    <div class="flex items-center justify-between bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+      <span class="font-semibold text-slate-300">2. Deliverable Quality & Accuracy</span>
+      <select id="review-score-quality" class="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-slate-200 outline-none">
+        <option value="5" selected>5/5 - Exceeded SLA</option>
+        <option value="4">4/5 - Met SLA Threshold</option>
+        <option value="3">3/5 - Margin Pass</option>
+        <option value="2">2/5 - Inconsistent Data</option>
+        <option value="1">1/5 - Low Quality</option>
+      </select>
+    </div>
+
+    <!-- Metric 3: Response Latency -->
+    <div class="flex items-center justify-between bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+      <span class="font-semibold text-slate-300">3. Turnaround Speed & Latency</span>
+      <select id="review-score-latency" class="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-slate-200 outline-none">
+        <option value="5" selected>5/5 - Near-Instant (Fast)</option>
+        <option value="4">4/5 - Within Window</option>
+        <option value="3">3/5 - Slight Delay</option>
+        <option value="2">2/5 - Timeout Risk</option>
+        <option value="1">1/5 - Unacceptable Latency</option>
+      </select>
+    </div>
+
+    <!-- Metric 4: Value for Money -->
+    <div class="flex items-center justify-between bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+      <span class="font-semibold text-slate-300">4. Cost-to-Value (ROI)</span>
+      <select id="review-score-value" class="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-slate-200 outline-none">
+        <option value="5" selected>5/5 - High ROI</option>
+        <option value="4">4/5 - Fair Market Rate</option>
+        <option value="3">3/5 - Neutral</option>
+        <option value="2">2/5 - Overpriced</option>
+        <option value="1">1/5 - Poor ROI</option>
+      </select>
+    </div>
+
+    <!-- Comment -->
+    <div>
+      <label class="block text-[11px] font-semibold text-slate-400 mb-1">Public Testimonial (Optional)</label>
+      <textarea 
+        id="review-input-comment" 
+        rows="2" 
+        placeholder="Leave brief feedback on deliverable quality or tool performance..."
+        class="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 placeholder-slate-600 outline-none resize-none"
+      ></textarea>
+    </div>
+
+    <div class="pt-2 flex items-center justify-end gap-2">
+      <button 
+        type="submit"
+        class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition shadow-md shadow-emerald-600/30 cursor-pointer"
+      >
+        Attest Review & Settle Escrow ->
+      </button>
+    </div>
+  </form>
+</div>

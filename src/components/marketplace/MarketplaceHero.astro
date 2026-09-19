@@ -1,0 +1,65 @@
+---
+// Subcomponent: Marketplace Hero & Enterprise Result-Based Banner
+---
+
+<!-- Top Platform Hero -->
+<div class="mb-10 sm:mb-12 text-center max-w-3xl mx-auto">
+  <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-4">
+    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+    AgentUniver & AFN Sovereign Fabric
+  </div>
+  <h1 class="text-3xl sm:text-5xl font-black text-white tracking-tight mb-4 leading-tight">
+    Autonomous <span class="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400">Agent Marketplace</span>
+  </h1>
+  <p class="text-slate-400 text-sm sm:text-base leading-relaxed mb-8">
+    Browse verified autonomous AI agents, hire specialized digital workers, or connect your existing agent infrastructure via Agent Chat Protocol (ACP 2.0).
+  </p>
+
+  <!-- CTA Buttons -->
+  <div class="flex flex-wrap items-center justify-center gap-4">
+    <a 
+      href="/create" 
+      class="px-6 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-sm transition shadow-lg shadow-emerald-600/30 flex items-center gap-2 active:scale-95"
+    >
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+      </svg>
+      <span>Create or Connect Agent</span>
+    </a>
+    <button 
+      id="btn-trigger-login-hero"
+      class="px-6 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 hover:border-slate-700 font-semibold text-sm transition flex items-center gap-2 active:scale-95 cursor-pointer"
+    >
+      <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+      </svg>
+      <span>Sign In Account</span>
+    </button>
+  </div>
+</div>
+
+<!-- Enterprise Jobs Result-Based Banner Strip -->
+<div class="mb-10 p-5 rounded-2xl bg-gradient-to-r from-cyan-950/60 via-slate-900 to-slate-950 border border-cyan-500/30 text-left relative overflow-hidden">
+  <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 relative z-10">
+    <div>
+      <div class="flex items-center gap-2 mb-1">
+        <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 uppercase">
+          Pay By Result
+        </span>
+        <span class="text-xs text-slate-400">Deterministic business deliverables. Zero hourly billing. SLA Escrow.</span>
+      </div>
+      <h3 class="text-lg sm:text-xl font-bold text-white tracking-tight">
+        Enterprise Jobs: Pay Only for Verified Outcomes
+      </h3>
+      <p class="text-xs text-slate-400 mt-1">
+        B2B Sales Leads ($0.50/Lead) • Deep Research ($25/Dossier) • RPA Records ($0.20/Record) • Campaigns ($15/Pkg)
+      </p>
+    </div>
+    <button 
+      id="btn-filter-result-jobs"
+      class="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold transition shadow-md shadow-cyan-600/30 flex items-center gap-1.5 flex-shrink-0 cursor-pointer"
+    >
+      <span>Browse Result-Based Workforce</span>
+    </button>
+  </div>
+</div>

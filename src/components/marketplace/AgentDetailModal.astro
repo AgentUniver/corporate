@@ -58,6 +58,39 @@ if __name__ == "__main__":
       </div>
     </div>
 
+    <!-- Trust Score & Result-Based Banner (Dynamic) -->
+    <div id="modal-trust-score-card" class="hidden mb-6 p-4 rounded-xl bg-cyan-950/40 border border-cyan-500/30 text-xs space-y-2">
+      <div class="flex items-center justify-between">
+        <span id="modal-pricing-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 uppercase tracking-wider">
+          Result-Based Workforce
+        </span>
+        <span id="modal-sla-badge" class="text-[11px] font-mono text-emerald-400 font-semibold">
+          SLA Guaranteed
+        </span>
+      </div>
+      <p id="modal-sla-text" class="text-slate-300 text-xs leading-relaxed">
+        Standard SLA compliance verification active.
+      </p>
+      <div class="grid grid-cols-4 gap-2 pt-2 border-t border-cyan-900/40 text-center font-mono">
+        <div class="bg-slate-900/70 p-2 rounded-lg">
+          <span class="text-[10px] text-slate-400 block uppercase">Accuracy</span>
+          <span id="modal-stat-accuracy" class="font-bold text-cyan-300">--%</span>
+        </div>
+        <div class="bg-slate-900/70 p-2 rounded-lg">
+          <span class="text-[10px] text-slate-400 block uppercase">Repeat Hire</span>
+          <span id="modal-stat-repeat" class="font-bold text-emerald-400">--%</span>
+        </div>
+        <div class="bg-slate-900/70 p-2 rounded-lg">
+          <span class="text-[10px] text-slate-400 block uppercase">Deliveries</span>
+          <span id="modal-stat-deliveries" class="font-bold text-white">--</span>
+        </div>
+        <div class="bg-slate-900/70 p-2 rounded-lg">
+          <span class="text-[10px] text-slate-400 block uppercase">Total GMV</span>
+          <span id="modal-stat-gmv" class="font-bold text-amber-300">--</span>
+        </div>
+      </div>
+    </div>
+
     <!-- Description -->
     <p id="modal-agent-desc" class="text-slate-300 text-sm leading-relaxed mb-6 bg-slate-950/50 p-3.5 rounded-xl border border-slate-800/80">
       Agent description text
@@ -110,16 +143,27 @@ if __name__ == "__main__":
     </div>
 
     <!-- Actions -->
-    <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
-      <button 
-        id="modal-test-chat-btn"
-        class="px-4 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition shadow-md shadow-emerald-600/30 flex items-center gap-1.5"
-      >
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-        </svg>
-        <span>Open Chat Playground</span>
-      </button>
+    <div class="flex items-center justify-between gap-3 pt-4 border-t border-slate-800">
+      <div id="modal-unit-price-tag" class="hidden text-xs font-mono text-cyan-300 font-semibold bg-cyan-950/60 border border-cyan-800/60 px-3 py-1.5 rounded-lg">
+        $0.00 / unit
+      </div>
+      <div class="flex items-center gap-3 ml-auto">
+        <button 
+          id="modal-order-results-btn"
+          class="hidden px-4 py-2 rounded-xl text-xs font-semibold bg-cyan-600 hover:bg-cyan-500 text-white transition shadow-md shadow-cyan-600/30 flex items-center gap-1.5"
+        >
+          <span>Order Results via Escrow</span>
+        </button>
+        <button 
+          id="modal-test-chat-btn"
+          class="px-4 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 transition border border-slate-700 flex items-center gap-1.5"
+        >
+          <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+          </svg>
+          <span>Open Chat Playground</span>
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -177,6 +221,15 @@ if __name__ == "__main__":
       }
     });
 
+    const orderResultsBtn = document.getElementById('modal-order-results-btn');
+
+    orderResultsBtn?.addEventListener('click', () => {
+      if (currentAgentData) {
+        modal?.classList.add('hidden');
+        window.dispatchEvent(new CustomEvent('open_hire_modal', { detail: currentAgentData }));
+      }
+    });
+
     testChatBtn?.addEventListener('click', () => {
       if (currentAgentData) {
         modal?.classList.add('hidden');
@@ -203,6 +256,16 @@ if __name__ == "__main__":
     const keywordsEl = document.getElementById('modal-agent-keywords');
     const codeSnippetEl = document.getElementById('modal-code-snippet');
 
+    // Trust Score and Result-based elements
+    const trustCard = document.getElementById('modal-trust-score-card');
+    const slaTextEl = document.getElementById('modal-sla-text');
+    const statAccuracyEl = document.getElementById('modal-stat-accuracy');
+    const statRepeatEl = document.getElementById('modal-stat-repeat');
+    const statDeliveriesEl = document.getElementById('modal-stat-deliveries');
+    const statGmvEl = document.getElementById('modal-stat-gmv');
+    const unitPriceTag = document.getElementById('modal-unit-price-tag');
+    const orderResultsBtn = document.getElementById('modal-order-results-btn');
+
     if (avatarEl) avatarEl.textContent = agent.name.slice(0, 2).toUpperCase();
     if (nameEl) nameEl.textContent = agent.name;
     if (protocolEl) protocolEl.textContent = agent.protocol;
@@ -211,6 +274,31 @@ if __name__ == "__main__":
     if (runsEl) runsEl.textContent = `${agent.runs} runs`;
     if (descEl) descEl.textContent = agent.description;
     if (endpointEl) endpointEl.textContent = agent.endpoint;
+
+    // Trust Score dynamic injection
+    if (agent.trustScore && trustCard) {
+      trustCard.classList.remove('hidden');
+      if (slaTextEl) slaTextEl.textContent = agent.slaThreshold || 'Standard SLA compliance verification active.';
+      if (statAccuracyEl) statAccuracyEl.textContent = `${agent.trustScore.accuracyRate}%`;
+      if (statRepeatEl) statRepeatEl.textContent = `${agent.trustScore.repeatHireRate}%`;
+      if (statDeliveriesEl) statDeliveriesEl.textContent = Number(agent.trustScore.verifiedDeliveries).toLocaleString();
+      if (statGmvEl) statGmvEl.textContent = `$${Number(agent.trustScore.totalGmvUsd).toLocaleString()}`;
+    } else if (trustCard) {
+      trustCard.classList.add('hidden');
+    }
+
+    // Result-Based action buttons
+    const isResultBased = agent.pricingModel === 'result_based' && agent.resultUnitPrice;
+    if (isResultBased) {
+      if (unitPriceTag) {
+        unitPriceTag.textContent = `$${agent.resultUnitPrice.toFixed(2)} / ${agent.resultMetric || 'unit'}`;
+        unitPriceTag.classList.remove('hidden');
+      }
+      if (orderResultsBtn) orderResultsBtn.classList.remove('hidden');
+    } else {
+      if (unitPriceTag) unitPriceTag.classList.add('hidden');
+      if (orderResultsBtn) orderResultsBtn.classList.add('hidden');
+    }
 
     if (keywordsEl) {
       keywordsEl.innerHTML = agent.keywords.map((kw: string) => 
@@ -249,8 +337,6 @@ if __name__ == "__main__":
   (window as any).openDetailWithAgent = openModalWithAgent;
 
   window.addEventListener('open_detail_modal', (e: any) => {
-    const agentId = e.detail?.id;
-    // Look up agent or pass detail
     if (e.detail?.name) {
       openModalWithAgent(e.detail);
     }

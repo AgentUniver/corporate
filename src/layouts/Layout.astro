@@ -4,6 +4,8 @@ import AuthModal from '../components/auth/AuthModal.astro';
 import AgentHireModal from '../components/marketplace/AgentHireModal.astro';
 import AgentDetailModal from '../components/marketplace/AgentDetailModal.astro';
 import AgentChatModal from '../components/marketplace/AgentChatModal.astro';
+import OrdersDrawer from '../components/marketplace/OrdersDrawer.astro';
+import PageAlert from '../components/ui/PageAlert.astro';
 
 interface Props {
   title: string;
@@ -26,10 +28,12 @@ const { title, description } = Astro.props;
     <slot />
 
     <!-- Global Singleton Interactive Modals -->
+    <PageAlert />
     <AuthModal />
     <AgentHireModal />
     <AgentDetailModal />
     <AgentChatModal />
+    <OrdersDrawer />
 
     <!-- Supabase Drip Pulse Keepalive Auto Trigger -->
     <script>

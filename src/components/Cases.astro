@@ -18,11 +18,11 @@ import Badge from './ui/Badge.astro';
       </p>
     </div>
 
-    <!-- Case Studies 3-Column Grid -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+    <!-- Case Studies Grid: 1 col on mobile, 2 cols on portrait tablets, 3 cols on wide desktop -->
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 lg:gap-8">
       
       <!-- Case 1: FinSense -->
-      <div class="p-8 rounded-2xl bg-slate-900/60 border border-slate-800 hover:border-emerald-500/50 transition flex flex-col justify-between group">
+      <div class="p-6 sm:p-8 rounded-2xl bg-slate-900/60 border border-slate-800 hover:border-emerald-500/50 transition flex flex-col justify-between group">
         <div class="space-y-4">
           <div class="flex items-center justify-between">
             <span class="text-xs font-semibold text-emerald-400 uppercase tracking-wider">
@@ -70,7 +70,7 @@ import Badge from './ui/Badge.astro';
       </div>
 
       <!-- Case 2: OpenCLI -->
-      <div class="p-8 rounded-2xl bg-slate-900/60 border border-slate-800 hover:border-indigo-500/50 transition flex flex-col justify-between group">
+      <div class="p-6 sm:p-8 rounded-2xl bg-slate-900/60 border border-slate-800 hover:border-indigo-500/50 transition flex flex-col justify-between group">
         <div class="space-y-4">
           <div class="flex items-center justify-between">
             <span class="text-xs font-semibold text-indigo-400 uppercase tracking-wider">
@@ -118,7 +118,7 @@ import Badge from './ui/Badge.astro';
       </div>
 
       <!-- Case 3: Moltbook Scout -->
-      <div class="p-8 rounded-2xl bg-slate-900/60 border border-slate-800 hover:border-cyan-500/50 transition flex flex-col justify-between group">
+      <div class="p-6 sm:p-8 rounded-2xl bg-slate-900/60 border border-slate-800 hover:border-cyan-500/50 transition flex flex-col justify-between group">
         <div class="space-y-4">
           <div class="flex items-center justify-between">
             <span class="text-xs font-semibold text-cyan-400 uppercase tracking-wider">

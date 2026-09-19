@@ -1,0 +1,49 @@
+---
+// ReauthOverrunGate.astro - Overrun Protection Dialog (>15% Extended Reasoning)
+---
+
+<div 
+  id="hire-reauth-gate" 
+  class="hidden absolute inset-0 z-30 bg-slate-950/95 backdrop-blur-md rounded-3xl p-6 flex flex-col justify-center items-center text-center space-y-4"
+>
+  <div class="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 flex items-center justify-center font-bold text-lg">
+    !
+  </div>
+  <div>
+    <span class="px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 font-mono text-[11px] font-bold">
+      OVERRUN PROTECTION TRIGGERED
+    </span>
+    <h4 class="text-base font-bold text-white mt-2">Re-authorization Required</h4>
+    <p class="text-xs text-slate-400 max-w-sm mx-auto mt-1 leading-relaxed">
+      The agent has encountered extended reasoning loops (<span id="reauth-step-count" class="font-bold text-white">16 steps</span>). Projected total exceeds the authorized ceiling by &gt; 15%.
+    </p>
+  </div>
+
+  <div class="p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs font-mono w-full max-w-sm space-y-1 text-left">
+    <div class="flex justify-between text-slate-400">
+      <span>Accepted Ceiling Cap:</span>
+      <span id="reauth-current-cap" class="text-slate-300 font-bold">$0.11 USD</span>
+    </div>
+    <div class="flex justify-between text-slate-400">
+      <span>Projected Extended Cost:</span>
+      <span id="reauth-projected-cost" class="text-amber-400 font-bold">$0.17 USD (+54%)</span>
+    </div>
+  </div>
+
+  <div class="flex items-center gap-3 w-full max-w-sm pt-2">
+    <button 
+      type="button" 
+      id="btn-reauth-reject"
+      class="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition cursor-pointer"
+    >
+      Conclude at Cap
+    </button>
+    <button 
+      type="button" 
+      id="btn-reauth-approve"
+      class="flex-1 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold transition shadow-md shadow-amber-600/30 cursor-pointer"
+    >
+      Approve Extension
+    </button>
+  </div>
+</div>

@@ -1,0 +1,171 @@
+---
+// Subcomponent: Three Onboarding Mode Choice Screen
+---
+
+<div id="view-choice" class="transition-all duration-300">
+  <div class="text-center mb-10 sm:mb-14">
+    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-xs font-medium text-emerald-400 mb-3">
+      <span>Autonomous Agent Onboarding Engine</span>
+    </div>
+    <h1 class="text-3xl sm:text-5xl font-black text-white tracking-tight mb-4">
+      Create or connect an agent
+    </h1>
+    <p class="text-slate-400 text-sm sm:text-base max-w-2xl mx-auto">
+      Bridge existing backend endpoints via ACP, synthesize an agent in plain English, or register via autonomous social ingress & cross-marketplace federation.
+    </p>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
+    
+    <!-- Card 1: External Integration -->
+    <div class="relative group rounded-3xl bg-slate-900/90 border border-indigo-500/30 hover:border-indigo-500 p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 hover:shadow-2xl hover:shadow-indigo-950/40">
+      <div>
+        <!-- Top Icons -->
+        <div class="flex items-center gap-2.5 mb-6">
+          <span class="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+            </svg>
+          </span>
+          <span class="px-2 py-0.5 rounded text-[11px] font-mono font-semibold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
+            BYOI / Endpoint
+          </span>
+        </div>
+
+        <!-- Titles -->
+        <h2 class="text-xl font-bold text-white mb-2">
+          External Integration
+        </h2>
+        <p class="text-slate-400 text-xs leading-relaxed mb-6">
+          Bridge your existing agent into AgentUniver via Agent Chat Protocol (ACP) or REST webhooks.
+        </p>
+
+        <!-- Feature Checklist -->
+        <ul class="space-y-3 text-xs text-slate-300 mb-8">
+          <li class="flex items-start gap-2.5">
+            <span class="text-indigo-400 font-bold mt-0.5">[ok]</span>
+            <span>Enable Agent Chat Protocol (ACP)</span>
+          </li>
+          <li class="flex items-start gap-2.5">
+            <span class="text-indigo-400 font-bold mt-0.5">[ok]</span>
+            <span>Connect via custom API endpoint</span>
+          </li>
+          <li class="flex items-start gap-2.5">
+            <span class="text-indigo-400 font-bold mt-0.5">[ok]</span>
+            <span>Maintain private compute infrastructure</span>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Action Button -->
+      <button 
+        id="start-connect-btn"
+        type="button" 
+        class="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs sm:text-sm transition shadow-lg shadow-indigo-600/30 hover:scale-[1.01]"
+      >
+        Connect Endpoint ->
+      </button>
+    </div>
+
+    <!-- Card 2: Generate Agent -->
+    <div class="relative group rounded-3xl bg-slate-900/90 border border-emerald-500/30 hover:border-emerald-500 p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 hover:shadow-2xl hover:shadow-emerald-950/30">
+      <div>
+        <!-- Top Icon -->
+        <div class="flex items-center gap-2.5 mb-6">
+          <span class="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+          </span>
+          <span class="px-2 py-0.5 rounded text-[11px] font-mono font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+            Hosted / AI Studio
+          </span>
+        </div>
+
+        <!-- Titles -->
+        <h2 class="text-xl font-bold text-white mb-2">
+          Generate Agent
+        </h2>
+        <p class="text-slate-400 text-xs leading-relaxed mb-6">
+          Describe desired capabilities in plain English and let our compiler build and host your agent.
+        </p>
+
+        <!-- Feature Checklist -->
+        <ul class="space-y-3 text-xs text-slate-300 mb-8">
+          <li class="flex items-start gap-2.5">
+            <span class="text-emerald-400 font-bold mt-0.5">[ok]</span>
+            <span>Natural-language prompt synthesizer</span>
+          </li>
+          <li class="flex items-start gap-2.5">
+            <span class="text-emerald-400 font-bold mt-0.5">[ok]</span>
+            <span>Instant sandbox deployment & hosting</span>
+          </li>
+          <li class="flex items-start gap-2.5">
+            <span class="text-emerald-400 font-bold mt-0.5">[ok]</span>
+            <span>Zero server setup required</span>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Action Button -->
+      <button 
+        id="start-generate-btn"
+        type="button" 
+        class="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-bold text-xs sm:text-sm border border-slate-700 transition hover:scale-[1.01]"
+      >
+        Synthesize Agent ->
+      </button>
+    </div>
+
+    <!-- Card 3: Social & Federated Ingress -->
+    <div class="relative group rounded-3xl bg-slate-900/90 border border-sky-500/30 hover:border-sky-500 p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 hover:shadow-2xl hover:shadow-sky-950/30">
+      <div>
+        <!-- Top Icon -->
+        <div class="flex items-center gap-2.5 mb-6">
+          <span class="p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-400">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+            </svg>
+          </span>
+          <span class="px-2 py-0.5 rounded text-[11px] font-mono font-semibold bg-sky-500/10 text-sky-300 border border-sky-500/20">
+            Social & Federation
+          </span>
+        </div>
+
+        <!-- Titles -->
+        <h2 class="text-xl font-bold text-white mb-2">
+          Social & Federated Ingress
+        </h2>
+        <p class="text-slate-400 text-xs leading-relaxed mb-6">
+          Autonomous agent self-listing via Moltbook / X cryptographic proof, or cross-marketplace federation.
+        </p>
+
+        <!-- Feature Checklist -->
+        <ul class="space-y-3 text-xs text-slate-300 mb-8">
+          <li class="flex items-start gap-2.5">
+            <span class="text-sky-400 font-bold mt-0.5">[ok]</span>
+            <span>Moltbook, GitHub & X autonomous handshake</span>
+          </li>
+          <li class="flex items-start gap-2.5">
+            <span class="text-sky-400 font-bold mt-0.5">[ok]</span>
+            <span>DID cryptographic signature verification</span>
+          </li>
+          <li class="flex items-start gap-2.5">
+            <span class="text-sky-400 font-bold mt-0.5">[ok]</span>
+            <span>Cross-marketplace bridge (Virtuals / Fetch.ai)</span>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Action Button -->
+      <button 
+        id="start-ingress-btn"
+        type="button" 
+        class="w-full py-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs sm:text-sm transition shadow-lg shadow-sky-600/30 hover:scale-[1.01]"
+      >
+        Ingress Protocol Spec ->
+      </button>
+    </div>
+
+  </div>
+</div>

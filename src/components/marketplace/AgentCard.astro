@@ -14,6 +14,8 @@ const { agent } = Astro.props;
   data-keywords={agent.keywords.join(",")}
   data-name={agent.name.toLowerCase()}
   data-agent-id={agent.id}
+  data-pricing-model={agent.pricingModel || 'task_based'}
+  data-trust-tier={agent.trustTier || 'tier_0_new'}
   data-interactions={agent.interactions}
   data-rating={agent.rating}
   data-created={agent.createdAt}
@@ -24,8 +26,8 @@ const { agent } = Astro.props;
   <!-- Left / Center Content -->
   <div class="flex items-start gap-4 sm:gap-5 flex-1 min-w-0">
     <!-- Avatar / Icon -->
-    <div class="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-950 border border-slate-700/80 flex items-center justify-center text-2xl sm:text-3xl shadow-inner group-hover:border-emerald-500/50 transition flex-shrink-0">
-      {agent.avatarIcon || '🤖'}
+    <div class="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-950 border border-slate-700/80 flex items-center justify-center text-lg sm:text-xl font-bold font-mono text-emerald-400 shadow-inner group-hover:border-emerald-500/50 transition flex-shrink-0">
+      {agent.avatarIcon || 'AU'}
     </div>
 
     <!-- Info Column -->
@@ -47,10 +49,48 @@ const { agent } = Astro.props;
 
       <!-- Protocol & Capability Badges -->
       <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
+        <!-- Upwork Progressive Trust Certification Ladder Badge -->
+        {agent.trustTier === 'tier_3_certified' && (
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/40 text-amber-300 text-[11px] font-bold shadow-sm shadow-amber-950/30">
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+            AU Certified [Top Tier]
+          </span>
+        )}
+        {agent.trustTier === 'tier_2_top_rated' && (
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-sky-500/15 border border-sky-500/40 text-sky-300 text-[11px] font-bold shadow-sm shadow-sky-950/30">
+            <span class="w-1.5 h-1.5 rounded-full bg-sky-400"></span>
+            Top Rated ({agent.acceptanceRate || 98}% Success)
+          </span>
+        )}
+        {agent.trustTier === 'tier_1_rising' && (
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-[11px] font-bold shadow-sm">
+            Rising Talent
+          </span>
+        )}
+        {(!agent.trustTier || agent.trustTier === 'tier_0_new') && (
+          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-400 text-[10px] font-mono">
+            New Agent
+          </span>
+        )}
+        <!-- Result-Based Workforce Pricing Badge -->
+        {agent.pricingModel === 'result_based' && (
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-cyan-500/15 border border-cyan-500/40 text-cyan-300 text-[11px] font-bold shadow-sm">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+            Result-Based: ${agent.resultUnitPrice?.toFixed(2)} / {agent.resultMetric}
+          </span>
+        )}
+
+        <!-- AFN Trust Score Badge -->
+        {agent.trustScore && (
+          <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[11px] font-mono font-semibold" title={`Verified Deliveries: ${agent.trustScore.verifiedDeliveries.toLocaleString()} | Accuracy: ${agent.trustScore.accuracyRate}% | Repeat Hire: ${agent.trustScore.repeatHireRate}%`}>
+            Trust: {agent.trustScore.accuracyRate}% Acc | {agent.trustScore.repeatHireRate}% Repeat
+          </span>
+        )}
+
         <!-- Active Badge -->
         <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-semibold">
           <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-          Active ✓
+          Active [OK]
         </span>
 
         <!-- ACP 2.0 Badge -->
@@ -63,28 +103,28 @@ const { agent } = Astro.props;
         <!-- Verified Badge -->
         {agent.verified && (
           <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-800 border border-emerald-500/30 text-emerald-400 text-[11px] font-semibold">
-            Verified ✓
+            Verified [OK]
           </span>
         )}
 
         <!-- Hosted Badge -->
         {agent.hosted && (
           <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-[11px]">
-            Hosted ☁
+            Hosted
           </span>
         )}
 
         <!-- Buildable Badge -->
         {agent.buildable && (
           <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-300 text-[11px]">
-            Build ▦
+            Buildable
           </span>
         )}
 
         <!-- Commercial / Hire Badge -->
         {agent.commercial && (
           <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] font-semibold">
-            Commercial 💎
+            Commercial
           </span>
         )}
       </div>
@@ -101,7 +141,7 @@ const { agent } = Astro.props;
       </div>
       <div class="flex flex-col items-start sm:items-end md:mt-1">
         <div class="flex items-center gap-1 text-amber-400 font-bold text-sm">
-          <span>★</span>
+          <span>*</span>
           <span class="font-mono">{agent.rating.toFixed(1)}</span>
         </div>
         <span class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Rating</span>
@@ -112,14 +152,14 @@ const { agent } = Astro.props;
     <div class="flex items-center gap-2">
       <button 
         type="button"
-        class="btn-hire-agent px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition shadow-md shadow-emerald-600/25 flex items-center gap-1.5 active:scale-95"
+        class={`btn-hire-agent px-4 py-2 rounded-xl text-white font-bold text-xs transition shadow-md flex items-center gap-1.5 active:scale-95 ${agent.pricingModel === 'result_based' ? 'bg-cyan-600 hover:bg-cyan-500 shadow-cyan-600/25' : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/25'}`}
         data-agent-data={JSON.stringify(agent)}
         onclick="if(window.openHireModal){try{window.openHireModal(JSON.parse(this.getAttribute('data-agent-data')))}catch(e){console.error(e)}}"
       >
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
         </svg>
-        <span>Hire Agent</span>
+        <span>{agent.pricingModel === 'result_based' ? `Order Results ($${agent.resultUnitPrice?.toFixed(2)})` : 'Hire Agent'}</span>
       </button>
 
       <button 

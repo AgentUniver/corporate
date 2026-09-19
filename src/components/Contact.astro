@@ -18,9 +18,9 @@ import Badge from './ui/Badge.astro';
       </p>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start max-w-5xl mx-auto">
+    <div class="grid grid-cols-1 xl:grid-cols-12 gap-8 lg:gap-12 items-start max-w-5xl mx-auto">
       <!-- Left Direct Contact Card -->
-      <div class="lg:col-span-5 p-8 rounded-3xl bg-slate-900/80 backdrop-blur-md border border-slate-800 space-y-6 shadow-xl shadow-black/40">
+      <div class="xl:col-span-5 p-6 sm:p-8 rounded-3xl bg-slate-900/80 backdrop-blur-md border border-slate-800 space-y-6 shadow-xl shadow-black/40">
         <div>
           <h3 class="text-lg font-bold text-white mb-2">
             Direct Intake Channels
@@ -53,12 +53,12 @@ import Badge from './ui/Badge.astro';
       </div>
 
       <!-- Right Form -->
-      <div class="lg:col-span-7 p-8 rounded-3xl bg-slate-900/80 backdrop-blur-md border border-slate-800 shadow-xl shadow-black/40">
+      <div class="xl:col-span-7 p-6 sm:p-8 rounded-3xl bg-slate-900/80 backdrop-blur-md border border-slate-800 shadow-xl shadow-black/40">
         <h3 class="text-xl font-bold text-white mb-6">
           Submit Collaboration Inquiry
         </h3>
         
-        <form class="space-y-4" onsubmit="event.preventDefault(); alert('Thank you. Your inquiry has been received. Our team will contact you within 24 hours.');">
+        <form id="contact-inquiry-form" class="space-y-4">
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label class="block text-xs font-medium text-slate-400 mb-1.5">Your Name</label>
@@ -111,3 +111,22 @@ import Badge from './ui/Badge.astro';
     </div>
   </Container>
 </Section>
+
+<script>
+  const form = document.getElementById('contact-inquiry-form') as HTMLFormElement | null;
+  form?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const win = window as any;
+    if (win.showPageAlert) {
+      win.showPageAlert({
+        type: 'success',
+        title: 'Inquiry Received',
+        message: 'Thank you. Your inquiry has been received. Our team will contact you within 24 hours.',
+        duration: 5000
+      });
+    } else {
+      alert('Thank you. Your inquiry has been received. Our team will contact you within 24 hours.');
+    }
+    form.reset();
+  });
+</script>

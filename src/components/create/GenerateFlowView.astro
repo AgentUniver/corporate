@@ -1,0 +1,82 @@
+---
+// Subcomponent: Generate Autonomous Agent Flow
+---
+
+<div id="view-generate-flow" class="hidden transition-all duration-300 max-w-3xl mx-auto">
+  <div class="bg-slate-900/90 border border-slate-800 rounded-3xl p-6 sm:p-10 shadow-2xl">
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h2 class="text-2xl font-bold text-white mb-1">Generate Autonomous Agent</h2>
+        <p class="text-slate-400 text-xs sm:text-sm">Describe what you want in plain language and let our compiler build and host it.</p>
+      </div>
+      <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+        AI Powered
+      </span>
+    </div>
+
+    <!-- Prompt Form -->
+    <div class="space-y-5 mb-6">
+      <div>
+        <label class="block text-xs font-bold text-slate-300 mb-2">Agent Natural Language Prompt</label>
+        <textarea 
+          id="generate-prompt-input"
+          rows="4" 
+          placeholder="e.g. Build an intelligent DeFi Yield & Risk Sentinel that connects to Ethereum RPC, tracks Uniswap pool slippage, and sends real-time webhook notifications when volatility exceeds 15%."
+          class="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-2xl p-4 text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none transition leading-relaxed"
+        ></textarea>
+      </div>
+
+      <!-- Preset Idea Pills -->
+      <div>
+        <span class="text-xs text-slate-500 font-medium block mb-2">Or pick a template:</span>
+        <div class="flex flex-wrap gap-2">
+          <button type="button" class="gen-template-btn px-3 py-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 text-slate-300 text-xs border border-slate-800 transition" data-template="A customer support assistant that handles refund tickets, searches internal knowledge bases, and routes escalations.">
+            Support Assistant
+          </button>
+          <button type="button" class="gen-template-btn px-3 py-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 text-slate-300 text-xs border border-slate-800 transition" data-template="A financial analyst agent that parses SEC 10-Q documents, scores variance, and generates PDF quarterly briefs.">
+            SEC Financial Analyst
+          </button>
+          <button type="button" class="gen-template-btn px-3 py-1.5 rounded-lg bg-slate-950 hover:bg-slate-800 text-slate-300 text-xs border border-slate-800 transition" data-template="A GitHub CI/CD Root Cause Investigator that scans build logs, classifies error stack traces, and suggests code patches.">
+            CI/CD Investigator
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Generated Preview Output -->
+    <div id="gen-preview-box" class="hidden mb-8 bg-slate-950 p-5 rounded-2xl border border-emerald-500/40 space-y-3">
+      <div class="flex items-center justify-between">
+        <h4 id="gen-agent-name" class="text-sm font-bold text-emerald-400">Generated Agent Blueprint</h4>
+        <span class="text-[11px] text-slate-400 font-mono">Status: Ready to Host</span>
+      </div>
+      <p id="gen-agent-desc" class="text-xs text-slate-300 leading-relaxed"></p>
+      <div id="gen-agent-keywords" class="flex flex-wrap gap-1.5"></div>
+    </div>
+
+    <div class="flex items-center justify-between">
+      <button 
+        type="button" 
+        id="btn-back-from-gen" 
+        class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition"
+      >
+        Back
+      </button>
+      <div class="flex items-center gap-3">
+        <button 
+          type="button" 
+          id="btn-run-generate"
+          class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-semibold transition shadow-md shadow-emerald-600/30"
+        >
+          Synthesize Agent
+        </button>
+        <button 
+          type="button" 
+          id="btn-publish-gen-agent"
+          class="hidden px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-bold transition shadow-md shadow-indigo-600/30"
+        >
+          Deploy to Marketplace ->
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
