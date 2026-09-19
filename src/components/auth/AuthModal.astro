@@ -98,6 +98,8 @@
   });
 
   window.addEventListener('open_auth_modal', openModal);
+  (window as any).openAuthModal = openModal;
+  (window as any).closeAuthModal = closeModal;
 
   btnGoogle?.addEventListener('click', async () => {
     try {
