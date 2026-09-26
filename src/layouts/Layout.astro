@@ -16,15 +16,16 @@ const { title, description } = Astro.props;
 ---
 
 <!doctype html>
-<html lang="en" class="scroll-smooth bg-slate-950 text-slate-100 selection:bg-emerald-500 selection:text-white overflow-x-hidden max-w-full">
+<html lang="en" class="scroll-smooth bg-slate-950 text-slate-100 selection:bg-emerald-500 selection:text-white overflow-x-clip max-w-full">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  </head>
-  <body class="min-h-screen flex flex-col antialiased bg-slate-950 text-slate-100 relative overflow-x-hidden max-w-full w-full">
+    <script defer src="https://umami.wangteng.tech/script.js" data-website-id="149c2d42-6560-4aaf-87de-d4b2b51c3e4c"></script>
+</head>
+  <body class="min-h-screen flex flex-col antialiased bg-slate-950 text-slate-100 relative overflow-x-clip max-w-full w-full">
     <slot />
 
     <!-- Global Singleton Interactive Modals -->
