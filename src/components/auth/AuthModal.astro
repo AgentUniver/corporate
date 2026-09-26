@@ -48,10 +48,21 @@
         <span class="ml-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-slate-950/20 text-slate-950 border border-slate-950/15 uppercase tracking-wider">Recommended</span>
       </button>
 
+      <!-- Web3 Wallet (MetaMask / OKX) -->
+      <button 
+        id="btn-login-web3"
+        class="w-full flex items-center justify-center gap-3 px-5 py-3 rounded-2xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 text-slate-200 hover:text-white font-medium text-sm transition shadow-sm active:scale-[0.98]"
+      >
+        <svg class="w-5 h-5 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+        </svg>
+        <span>Connect Web3 Wallet</span>
+      </button>
+
       <!-- Google SSO (Secondary) -->
       <button 
         id="btn-login-google"
-        class="w-full flex items-center justify-center gap-3 px-5 py-3 rounded-2xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white font-medium text-sm transition shadow-sm active:scale-[0.98]"
+        class="w-full flex items-center justify-center gap-3 px-5 py-3 rounded-2xl bg-slate-850 hover:bg-slate-800 border border-slate-700/60 text-slate-400 hover:text-white font-medium text-sm transition shadow-sm active:scale-[0.98]"
       >
         <svg class="w-4 h-4 opacity-80" viewBox="0 0 24 24">
           <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -71,13 +82,14 @@
 </div>
 
 <script>
-  import { signInWithGoogle, signInWithGithub } from '../../lib/supabase';
+  import { signInWithGoogle, signInWithGithub, signInWithWeb3Wallet } from '../../lib/supabase';
 
   const modal = document.getElementById('auth-modal');
   const modalContent = document.getElementById('auth-modal-content');
   const btnClose = document.getElementById('btn-close-auth');
   const btnGoogle = document.getElementById('btn-login-google');
   const btnGithub = document.getElementById('btn-login-github');
+  const btnWeb3 = document.getElementById('btn-login-web3');
 
   function openModal() {
     if (!modal || !modalContent) return;
@@ -102,21 +114,32 @@
   (window as any).openAuthModal = openModal;
   (window as any).closeAuthModal = closeModal;
 
-  btnGoogle?.addEventListener('click', async () => {
-    try {
-      await signInWithGoogle();
-      closeModal();
-    } catch (e) {
-      alert('Google login failed: ' + e);
-    }
-  });
-
   btnGithub?.addEventListener('click', async () => {
     try {
       await signInWithGithub();
       closeModal();
     } catch (e) {
       alert('GitHub login failed: ' + e);
+    }
+  });
+
+  btnWeb3?.addEventListener('click', async () => {
+    try {
+      const res = await signInWithWeb3Wallet();
+      if (res) {
+        closeModal();
+      }
+    } catch (e) {
+      console.warn('Web3 login error:', e);
+    }
+  });
+
+  btnGoogle?.addEventListener('click', async () => {
+    try {
+      await signInWithGoogle();
+      closeModal();
+    } catch (e) {
+      alert('Google login failed: ' + e);
     }
   });
 </script>

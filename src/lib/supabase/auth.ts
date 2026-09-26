@@ -66,6 +66,52 @@ export async function signInWithGithub() {
 }
 
 /**
+ * 触发 Web3 钱包 (MetaMask / OKX) 登录
+ */
+export async function signInWithWeb3Wallet(): Promise<{ user: UserProfile } | null> {
+  if (typeof window !== 'undefined' && typeof (window as any).ethereum !== 'undefined') {
+    try {
+      const accounts = await (window as any).ethereum.request({ method: 'eth_requestAccounts' });
+      if (accounts && accounts.length > 0) {
+        const acc = accounts[0];
+        localStorage.setItem('agentuniver_wallet', acc);
+        const web3User: UserProfile = {
+          id: 'did:eth:' + acc,
+          email: `${acc.substring(0, 6)}...${acc.substring(acc.length - 4)}@web3.eth`,
+          name: `${acc.substring(0, 6)}...${acc.substring(acc.length - 4)}`,
+          avatarUrl: `https://api.dicebear.com/7.x/identicon/svg?seed=${acc}`,
+          role: 'developer'
+        };
+        localStorage.setItem('agentuniver_auth_user', JSON.stringify(web3User));
+        window.dispatchEvent(new Event('agentuniver_auth_change'));
+        window.dispatchEvent(new CustomEvent('agentuniver_wallet_connected', { detail: { address: acc } }));
+        return { user: web3User };
+      }
+    } catch (err: any) {
+      console.warn('Web3 wallet connection rejected:', err);
+      throw err;
+    }
+  }
+
+  // No Web3 wallet found
+  if (typeof window !== 'undefined') {
+    if ((window as any).showPageAlert) {
+      (window as any).showPageAlert({
+        type: 'warning',
+        title: 'Web3 Wallet Required',
+        message: 'No Web3 wallet detected. Please install MetaMask or OKX Wallet to connect your decentralized identity.',
+        action: {
+          label: 'Install MetaMask',
+          url: 'https://metamask.io/download/'
+        },
+        duration: 7000
+      });
+    }
+  }
+  return null;
+}
+
+/**
  * 登出
  */
 export async function signOutUser() {
