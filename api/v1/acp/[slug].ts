@@ -12,7 +12,7 @@ interface VercelResponse extends ServerResponse {
   json: (data: any) => VercelResponse;
 }
 
-const supabaseUrl = process.env.PUBLIC_SUPABASE_URL || 'https://lbkhvciymyzzjijuhbri.supabase.co';
+const supabaseUrl = process.env.PUBLIC_SUPABASE_URL || 'https://rorfuxoelnylsvpinzbo.supabase.co';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY || process.env.PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
