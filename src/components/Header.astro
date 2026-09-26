@@ -84,16 +84,6 @@
         <span>Orders</span>
       </button>
 
-      <!-- Web3 Connect Wallet Button -->
-      <button 
-        id="btn-nav-wallet"
-        onclick="if(window.connectAgentUniverWallet){window.connectAgentUniverWallet();}else{window.dispatchEvent(new Event('trigger_connect_wallet'));}"
-        class="text-xs font-semibold px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 hover:border-emerald-500/50 transition-all flex items-center gap-1.5 active:scale-95 whitespace-nowrap cursor-pointer"
-      >
-        <span class="w-2 h-2 rounded-full bg-slate-500" id="wallet-status-dot"></span>
-        <span id="wallet-address-display">Connect Wallet</span>
-      </button>
-
       <!-- Connect Agent CTA -->
       <a 
         href="/create" 
@@ -105,21 +95,55 @@
         <span>Connect Agent</span>
       </a>
 
-      <!-- Unauthenticated State: Sign In Button -->
-      <button 
-        id="btn-nav-signin"
-        onclick="if(window.openAuthModal){window.openAuthModal();}else{window.dispatchEvent(new Event('open_auth_modal'));}"
-        class="text-xs font-semibold px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 hover:border-slate-700 transition-all flex items-center gap-1.5 active:scale-95 whitespace-nowrap cursor-pointer"
-      >
-        <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
-        </svg>
-        <span>Sign In</span>
-      </button>
+      <!-- Unauthenticated State: Sign In Button with Hover Connect Wallet Dropdown -->
+      <div id="nav-signin-wrapper" class="relative group">
+        <button 
+          id="btn-nav-signin"
+          onclick="if(window.openAuthModal){window.openAuthModal();}else{window.dispatchEvent(new Event('open_auth_modal'));}"
+          class="text-xs font-semibold px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 hover:border-slate-700 transition-all flex items-center gap-1.5 active:scale-95 whitespace-nowrap cursor-pointer"
+          title="Click to sign in with GitHub or Google"
+        >
+          <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+          </svg>
+          <span>Sign In</span>
+          <svg class="w-3 h-3 text-slate-500 group-hover:text-emerald-400 transition-transform group-hover:translate-y-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        <!-- Hover Dropdown: Quick Connect Web3 Wallet -->
+        <div class="absolute right-0 top-full pt-2 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-all duration-200 z-50">
+          <div class="w-56 p-2 bg-slate-900/95 backdrop-blur-xl border border-slate-800 rounded-2xl shadow-2xl shadow-emerald-950/40">
+            <div class="text-[10px] font-mono text-slate-400 uppercase tracking-wider px-2.5 py-1 flex items-center justify-between">
+              <span>Web3 Identity</span>
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            </div>
+            
+            <button 
+              id="btn-nav-wallet"
+              onclick="if(window.connectAgentUniverWallet){window.connectAgentUniverWallet();}else{window.dispatchEvent(new Event('trigger_connect_wallet'));}"
+              class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-slate-800/80 hover:bg-emerald-500/10 text-slate-200 hover:text-emerald-400 border border-slate-700/60 hover:border-emerald-500/30 transition-all text-xs font-semibold group/wallet cursor-pointer mt-1"
+            >
+              <svg class="w-4 h-4 text-emerald-400 group-hover/wallet:scale-110 transition-transform flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
+              </svg>
+              <div class="flex flex-col text-left truncate">
+                <span id="wallet-address-display">Connect Wallet</span>
+                <span class="text-[10px] text-slate-400 font-normal">MetaMask / OKX</span>
+              </div>
+            </button>
+
+            <div class="px-2.5 pt-2 pb-1 text-[10px] text-slate-400 border-t border-slate-800/80 mt-2 flex items-center justify-between">
+              <span>Click button for GitHub & Google</span>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <!-- Authenticated State (Hidden by default) -->
       <div id="nav-user-profile" class="hidden relative group">
-        <button class="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-emerald-500/50 transition">
+        <button class="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-emerald-500/50 transition cursor-pointer">
           <img id="nav-user-avatar" src="https://api.dicebear.com/7.x/bottts/svg?seed=user" alt="Avatar" class="w-6 h-6 rounded-full bg-slate-800" />
           <span id="nav-user-name" class="text-xs font-semibold text-white max-w-[90px] truncate">Builder</span>
           <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -128,19 +152,23 @@
         </button>
 
         <!-- Dropdown -->
-        <div class="absolute right-0 top-full mt-2 w-48 py-2 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-all duration-200 z-50">
+        <div class="absolute right-0 top-full mt-2 w-52 py-2 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-all duration-200 z-50">
+          <div class="px-4 py-2 border-b border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400 font-mono">
+            <span>Wallet</span>
+            <span id="profile-wallet-indicator" class="text-emerald-400 truncate max-w-[110px]">Not Connected</span>
+          </div>
           <a href="/create" class="block px-4 py-2 text-xs text-slate-300 hover:text-white hover:bg-slate-800">
             Registered Agents
           </a>
           <button 
             id="btn-view-hired-tasks" 
             onclick="if(window.openOrdersDrawer){window.openOrdersDrawer();}else{window.dispatchEvent(new Event('open_orders_drawer'));}"
-            class="w-full text-left block px-4 py-2 text-xs text-slate-300 hover:text-white hover:bg-slate-800"
+            class="w-full text-left block px-4 py-2 text-xs text-slate-300 hover:text-white hover:bg-slate-800 cursor-pointer"
           >
             My Hired Orders
           </button>
           <div class="border-t border-slate-800 my-1"></div>
-          <button id="btn-nav-signout" class="w-full text-left block px-4 py-2 text-xs text-rose-400 hover:bg-rose-500/10">
+          <button id="btn-nav-signout" class="w-full text-left block px-4 py-2 text-xs text-rose-400 hover:bg-rose-500/10 cursor-pointer">
             Sign Out
           </button>
         </div>
@@ -236,6 +264,7 @@
 <script>
   import { getCurrentUserProfile, signOutUser } from '../lib/supabase';
 
+  const navSignInWrapper = document.getElementById('nav-signin-wrapper');
   const btnSignIn = document.getElementById('btn-nav-signin');
   const btnMobileSignIn = document.getElementById('btn-mobile-signin');
   const userProfileEl = document.getElementById('nav-user-profile');
@@ -262,6 +291,7 @@
     try {
       const user = await getCurrentUserProfile();
       if (user) {
+        if (navSignInWrapper) navSignInWrapper.classList.add('hidden');
         if (btnSignIn) btnSignIn.classList.add('hidden');
         if (btnNavOrdersTop) btnNavOrdersTop.classList.remove('hidden');
         if (btnMobileOrders) btnMobileOrders.classList.remove('hidden');
@@ -270,6 +300,7 @@
         if (userAvatarEl) userAvatarEl.src = user.avatarUrl;
         if (userNameEl) userNameEl.textContent = user.name;
       } else {
+        if (navSignInWrapper) navSignInWrapper.classList.remove('hidden');
         if (btnSignIn) btnSignIn.classList.remove('hidden');
         if (btnNavOrdersTop) btnNavOrdersTop.classList.add('hidden');
         if (btnMobileOrders) btnMobileOrders.classList.add('hidden');
@@ -365,17 +396,20 @@
 
   function updateWalletUI(address?: string) {
     const saved = address || localStorage.getItem('agentuniver_wallet');
+    const profileWallet = document.getElementById('profile-wallet-indicator');
     if (saved) {
       const shortAddr = saved.substring(0, 6) + '...' + saved.substring(saved.length - 4);
       if (walletDisplay) walletDisplay.textContent = shortAddr;
       if (walletDot) walletDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
       if (walletDisplayMobile) walletDisplayMobile.textContent = shortAddr;
       if (walletDotMobile) walletDotMobile.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+      if (profileWallet) profileWallet.textContent = shortAddr;
     } else {
       if (walletDisplay) walletDisplay.textContent = 'Connect Wallet';
       if (walletDot) walletDot.className = 'w-2 h-2 rounded-full bg-slate-500';
       if (walletDisplayMobile) walletDisplayMobile.textContent = 'Wallet';
       if (walletDotMobile) walletDotMobile.className = 'w-2 h-2 rounded-full bg-slate-500';
+      if (profileWallet) profileWallet.textContent = 'Not Connected';
     }
   }
 
