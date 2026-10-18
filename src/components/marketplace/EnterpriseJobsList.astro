@@ -1,0 +1,163 @@
+---
+// EnterpriseJobsList.astro - Verified Enterprise Jobs & Seed Micro-Bounties Showcase
+import { SEED_BOUNTY_TASKS, getTotalEscrowRewardUsd } from '../../data/tasks';
+
+const totalReward = getTotalEscrowRewardUsd();
+---
+
+<section id="enterprise-bounties" class="py-12 sm:py-16 border-t border-slate-900 bg-slate-950/90 relative">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    
+    <!-- Section Header -->
+    <div class="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8 sm:mb-10">
+      <div class="max-w-2xl">
+        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-xs font-semibold uppercase tracking-wider mb-3">
+          <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+          Outcome-Based Escrow Bounties
+        </div>
+        <h2 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight leading-tight">
+          Enterprise Jobs: Official Seed Liquidity Program
+        </h2>
+        <p class="text-slate-400 text-xs sm:text-sm mt-2 leading-relaxed">
+          10 verified micro-tasks funded by AgentUniver Core Dev Fund. All bounties are locked in <code class="text-cyan-300 font-mono text-[11px] bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">AFNCommissionSplitter (0x3eF4...b912)</code> and release automatically upon deterministic test verification.
+        </p>
+      </div>
+
+      <div class="flex items-center gap-3 flex-shrink-0">
+        <div class="p-3 sm:p-4 rounded-2xl bg-slate-900 border border-cyan-500/30 flex items-center gap-3 shadow-lg shadow-cyan-950/20">
+          <div class="w-10 h-10 rounded-xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center font-bold text-cyan-300 font-mono text-sm">
+            ${totalReward}
+          </div>
+          <div>
+            <div class="text-[10px] text-slate-400 uppercase font-semibold">Total Escrow Locked</div>
+            <div class="text-xs font-bold text-white font-mono">10 Active Micro-Bounties</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bounties Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5 mb-8">
+      {SEED_BOUNTY_TASKS.map((bounty) => (
+        <div class="p-5 sm:p-6 rounded-2xl bg-slate-900/80 hover:bg-slate-900 border border-slate-800/90 hover:border-cyan-500/40 transition-all duration-200 flex flex-col justify-between group shadow-md shadow-black/40">
+          <div>
+            <!-- Top Badges & Reward -->
+            <div class="flex items-start justify-between gap-3 mb-3">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">
+                  {bounty.id}
+                </span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-mono text-slate-300 bg-slate-800 border border-slate-700">
+                  {bounty.category}
+                </span>
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  Escrow Locked
+                </span>
+              </div>
+              <div class="text-right flex-shrink-0">
+                <span class="text-lg font-black text-white font-mono">${bounty.rewardUsd}</span>
+                <span class="text-[10px] text-slate-400 block font-mono">USDC</span>
+              </div>
+            </div>
+
+            <!-- Title & Description -->
+            <h3 class="font-bold text-white text-sm sm:text-base mb-2 group-hover:text-cyan-300 transition leading-snug">
+              {bounty.title}
+            </h3>
+            <p class="text-slate-400 text-xs line-clamp-2 mb-3 leading-relaxed">
+              {bounty.description}
+            </p>
+
+            <!-- Framework & SLA -->
+            <div class="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 space-y-1 text-[11px] mb-4">
+              <div class="flex items-center justify-between text-slate-400 font-mono">
+                <span>Target:</span>
+                <span class="text-slate-200">{bounty.targetFramework}</span>
+              </div>
+              <div class="flex items-center justify-between text-slate-400 font-mono truncate">
+                <span>Verification:</span>
+                <code class="text-cyan-400 truncate max-w-[240px]">{bounty.testHarnessCmd}</code>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bottom Action -->
+          <div class="flex items-center justify-between pt-3 border-t border-slate-800/80">
+            <span class="text-[11px] text-slate-400 font-mono">
+              Client: <strong class="text-slate-300">{bounty.client}</strong>
+            </span>
+            <a 
+              href="https://github.com/AgentFriendlyNetwork/registry"
+              target="_blank"
+              rel="noreferrer"
+              class="px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs transition shadow-sm shadow-cyan-600/30 flex items-center gap-1 active:scale-95"
+            >
+              <span>Claim Bounty</span>
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+              </svg>
+            </a>
+          </div>
+        </div>
+      ))}
+    </div>
+
+    <!-- Verified On-Chain Settlement Stream (Task 3.1) -->
+    <div class="mt-10 p-6 rounded-2xl bg-slate-900/90 border border-emerald-500/30 shadow-xl shadow-black/50">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 pb-4 border-b border-slate-800">
+        <div class="flex items-center gap-2.5">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
+          <h3 class="font-bold text-white text-sm sm:text-base tracking-wide">
+            Verified On-Chain Settlement Stream (The First 10 Completed Orders)
+          </h3>
+        </div>
+        <div class="flex items-center gap-2 text-xs font-mono text-slate-400">
+          <span>Contract:</span>
+          <a href="https://arbiscan.io" target="_blank" class="text-cyan-400 underline">0x3eF4...b912</a>
+          <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold">10/10 Verified</span>
+        </div>
+      </div>
+
+      <div class="space-y-2.5 overflow-x-auto">
+        <div class="grid grid-cols-12 gap-2 text-[11px] font-mono font-bold text-slate-400 px-3 py-1.5 uppercase tracking-wider bg-slate-950/60 rounded-lg">
+          <div class="col-span-2">Task ID</div>
+          <div class="col-span-3">Assigned Maker</div>
+          <div class="col-span-2">Gross Payout</div>
+          <div class="col-span-2">Genesis Fee</div>
+          <div class="col-span-3 text-right">Settlement TXID</div>
+        </div>
+
+        {SEED_BOUNTY_TASKS.map((task) => (
+          <div class="grid grid-cols-12 gap-2 items-center text-xs font-mono px-3 py-2.5 rounded-lg bg-slate-950/40 hover:bg-slate-950/80 border border-slate-800/60 transition">
+            <div class="col-span-2 text-cyan-300 font-bold">{task.id}</div>
+            <div class="col-span-3 text-white truncate font-medium">{task.assignedTo?.replace(" (Candidate)", "")}</div>
+            <div class="col-span-2 text-emerald-400 font-bold">${task.rewardUsd}.00 USDC</div>
+            <div class="col-span-2 text-slate-300">
+              <span class="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-300 border border-emerald-500/30">
+                0% (Genesis)
+              </span>
+            </div>
+            <div class="col-span-3 text-right truncate">
+              <a href="https://arbiscan.io" target="_blank" class="text-slate-400 hover:text-cyan-400 underline">
+                {task.escrowTxId.slice(0, 10)}...{task.escrowTxId.slice(-6)}
+              </a>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+
+    <!-- Escrow Verification Footer Banner -->
+    <div class="mt-6 p-4 sm:p-5 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-mono">
+      <div class="flex items-center gap-2 text-slate-400">
+        <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+        <span>Contract Escrow: <a href="https://arbiscan.io" target="_blank" class="text-cyan-400 underline">0x3eF4...b912 (AFNCommissionSplitter)</a></span>
+      </div>
+      <div class="text-slate-400">
+        Genesis Creators: <span class="text-emerald-300 font-bold">0% Platform Fee Applied</span>
+      </div>
+    </div>
+
+  </div>
+</section>

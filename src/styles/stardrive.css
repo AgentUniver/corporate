@@ -21,7 +21,7 @@ html, body {
   --stars3: 1200px 800px #34d399, 600px 1600px #fff, 1600px 400px #10b981, 300px 1100px #06b6d4;
 }
 
-/* Hero Cosmic Atmosphere */
+/* Hero Cosmic Atmosphere - GPU Optimized & Power Efficient */
 .stardrive-hero {
   background: radial-gradient(at 50% 35%, #022c22 0%, #021a14 45%, #020617 100%);
   position: relative;
@@ -29,43 +29,37 @@ html, body {
   contain: paint;
 }
 
+/* Static, bounded ambient galaxy glow (eliminating 2600px full-screen GPU rotational repaint) */
 .stardrive-galaxy {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 2600px;
-  height: 2600px;
+  width: 100%;
+  max-width: 1200px;
+  height: 600px;
   transform: translate(-50%, -50%);
-  transform-origin: 50% 50%;
-  animation: 160s linear infinite galaxyRotate;
+  background: radial-gradient(ellipse at center, rgba(16, 185, 129, 0.12) 0%, rgba(6, 182, 212, 0.06) 40%, transparent 70%);
   pointer-events: none;
   z-index: 1;
+  contain: strict;
 }
 
-@keyframes galaxyRotate {
-  0% { transform: translate(-50%, -50%) rotate(0deg); }
-  100% { transform: translate(-50%, -50%) rotate(360deg); }
-}
-
+/* Static multi-gradient nebula (eliminating infinite 20s scale() GPU redraw loops) */
 .stardrive-nebula {
   position: absolute;
   inset: 0;
   background: 
-    radial-gradient(50% 40% at 30% 35%, rgba(16, 185, 129, 0.28) 0%, transparent 70%),
-    radial-gradient(40% 30% at 70% 60%, rgba(6, 182, 212, 0.22) 0%, transparent 65%),
-    radial-gradient(45% 45% at 55% 20%, rgba(16, 185, 129, 0.18) 0%, transparent 60%),
-    radial-gradient(60% 40% at 45% 80%, rgba(4, 47, 46, 0.45) 0%, transparent 75%);
-  animation: 20s ease-in-out infinite alternate nebulaPulse;
+    radial-gradient(50% 40% at 30% 35%, rgba(16, 185, 129, 0.22) 0%, transparent 70%),
+    radial-gradient(40% 30% at 70% 60%, rgba(6, 182, 212, 0.16) 0%, transparent 65%),
+    radial-gradient(45% 45% at 55% 20%, rgba(16, 185, 129, 0.14) 0%, transparent 60%),
+    radial-gradient(60% 40% at 45% 80%, rgba(4, 47, 46, 0.35) 0%, transparent 75%);
   pointer-events: none;
   z-index: 1;
+  contain: strict;
+  opacity: 0.85;
 }
 
-@keyframes nebulaPulse {
-  0% { opacity: 0.7; transform: scale(0.98); }
-  100% { opacity: 1; transform: scale(1.02); }
-}
-
-/* Twinkle Stars Layers */
+/* Lightweight Starfield Layers (Static low-overhead star points without continuous box-shadow redraws) */
 .starfield-1:before {
   content: "";
   position: absolute;
@@ -76,7 +70,8 @@ html, body {
   box-shadow: var(--stars1);
   background-color: transparent;
   border-radius: 9999px;
-  animation: 8s ease-in-out infinite alternate starTwinkle;
+  opacity: 0.75;
+  contain: strict;
 }
 
 .starfield-2:before {
@@ -84,12 +79,13 @@ html, body {
   position: absolute;
   top: 0;
   left: 0;
-  width: 2.5px;
-  height: 2.5px;
+  width: 2px;
+  height: 2px;
   box-shadow: var(--stars2);
   background-color: transparent;
   border-radius: 9999px;
-  animation: 12s ease-in-out infinite alternate starTwinkle;
+  opacity: 0.65;
+  contain: strict;
 }
 
 .starfield-3:before {
@@ -97,17 +93,24 @@ html, body {
   position: absolute;
   top: 0;
   left: 0;
-  width: 3.5px;
-  height: 3.5px;
+  width: 2.5px;
+  height: 2.5px;
   box-shadow: var(--stars3);
   background-color: transparent;
   border-radius: 9999px;
-  animation: 16s ease-in-out infinite alternate starTwinkle;
+  opacity: 0.55;
+  contain: strict;
 }
 
-@keyframes starTwinkle {
-  0% { opacity: 0.4; }
-  100% { opacity: 1; }
+/* Respect user's reduced motion and energy-saving preferences */
+@media (prefers-reduced-motion: reduce) {
+  .stardrive-galaxy,
+  .stardrive-nebula,
+  .starfield-1:before,
+  .starfield-2:before,
+  .starfield-3:before {
+    animation: none !important;
+  }
 }
 
 /* Graph Paper Tech Grid Matrix */

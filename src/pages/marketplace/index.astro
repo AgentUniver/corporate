@@ -7,6 +7,7 @@ import NetworkStatsHeader from '../../components/marketplace/NetworkStatsHeader.
 import MarketplaceHero from '../../components/marketplace/MarketplaceHero.astro';
 import FilterToolbar from '../../components/marketplace/FilterToolbar.astro';
 import PaginationBar from '../../components/marketplace/PaginationBar.astro';
+import EnterpriseJobsList from '../../components/marketplace/EnterpriseJobsList.astro';
 import { INITIAL_AGENTS } from '../../data/agents';
 
 const categories = [
@@ -50,6 +51,9 @@ const categories = [
           <AgentCard agent={agent} />
         ))}
       </div>
+
+      <!-- Enterprise Jobs: Seed Micro-Bounties Liquidity Program -->
+      <EnterpriseJobsList />
 
       <!-- Pagination & Empty State -->
       <PaginationBar />

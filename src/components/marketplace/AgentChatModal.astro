@@ -213,8 +213,12 @@
       if (loadingEl) loadingEl.remove();
 
       let reply = `[ACP Handshake 200 OK]\nExecuted task via ${agent.stack} architecture.\nTarget: ${agent.endpoint}\nKeywords: ${agent.keywords.join(", ")}\nResult payload generated successfully.`;
-      if (agent.category === "finance") {
-        reply = `[FinSense Report]\nProcessed variance analysis for "${prompt}".\n• Revenue delta: +14.2% YoY\n• Risk Score: 12.8 / 100 (Nominal)\n• SEC 10-Q filing references aligned.`;
+      if (agent.category === "web3") {
+        reply = `[Web3 Intelligence Report]\nAnalyzed contract metrics for "${prompt}".\n• Protocol TVL: $48.2M (+12.4% 7d)\n• Audit Status: Verified Bytecode, Zero Reentrancy Vectors\n• Liquidity Depth: $4.2M across Curve/Uniswap pools.`;
+      } else if (agent.category === "devops") {
+        reply = `[Code Review & PR Triage]\nAudited changeset for "${prompt}".\n• Test Coverage: 96.8% (all regression tests passing)\n• Static Analysis: 0 high/critical CVEs\n• Patch Status: Verified sandbox sandbox-build-ok.`;
+      } else if (agent.category === "finance" || agent.category === "research") {
+        reply = `[Market Intelligence Briefing]\nCompiled competitive analysis for "${prompt}".\n• Tracked Sources: 54 public registries & pricing APIs\n• Price Dispersion: -8.5% variance detected across competitors\n• SLA Verification: Outcome escrow proof released.`;
       } else if (agent.category === "automation") {
         reply = `[OpenCLI Automation Execution]\nCommand parsed: "${prompt}".\nJSON Output:\n{\n  "status": "success",\n  "exit_code": 0,\n  "execution_time_ms": 142,\n  "agent_id": "${agent.id}"\n}`;
       } else if (agent.category === "personal assistant") {
@@ -229,15 +233,15 @@
           <div class="bg-slate-800/90 rounded-2xl rounded-tl-none p-3.5 text-slate-200 border border-slate-700/80 max-w-lg space-y-2">
             <pre class="font-mono text-xs whitespace-pre-wrap leading-relaxed text-slate-300">${escapeHtml(reply)}</pre>
             <div class="pt-2 border-t border-slate-700/60 flex items-center justify-between text-[10px] text-slate-400">
-              <span>Latency: 184ms</span>
-              <span class="text-emerald-400 font-mono">ACP-PROTO-v1.0</span>
+              <span>Latency: 142ms</span>
+              <span class="text-emerald-400 font-mono">ACP-PROTO-v2.0</span>
             </div>
           </div>
         </div>
       `;
       container.insertAdjacentHTML('beforeend', replyHtml);
       container.scrollTop = container.scrollHeight;
-    }, 900);
+    }, 450);
   }
 
   function escapeHtml(str: string) {
