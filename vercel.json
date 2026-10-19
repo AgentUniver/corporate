@@ -3,6 +3,11 @@
   "framework": "astro",
   "buildCommand": "pnpm run build",
   "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/acp", "destination": "/api/v1/acp/index" },
+    { "source": "/api/v1/acp", "destination": "/api/v1/acp/index" },
+    { "source": "/v1/acp/:path*", "destination": "/api/v1/acp/:path*" }
+  ],
   "headers": [
     {
       "source": "/(.*)",
