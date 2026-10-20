@@ -163,9 +163,16 @@ CREATE INDEX IF NOT EXISTS idx_agent_tasks_version ON agent_tasks (version);
 CREATE OR REPLACE FUNCTION trg_agent_tasks_monotonic_version()
 RETURNS TRIGGER AS $$
 BEGIN
+    -- 1. Monotonic version fencing (P1-2)
     IF NEW.version IS NULL OR NEW.version <= OLD.version THEN
         RAISE EXCEPTION 'Monotonic version violation: NEW.version (%) must be strictly greater than OLD.version (%)', NEW.version, OLD.version;
     END IF;
+
+    -- 2. Terminal state immutability (P1-6): verified, completed, refunded, cancelled are irreversible
+    IF OLD.status IN ('verified', 'completed', 'refunded', 'cancelled') AND NEW.status != OLD.status THEN
+        RAISE EXCEPTION 'Terminal state immutability violation: Cannot transition task from terminal status % to %', OLD.status, NEW.status;
+    END IF;
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -246,13 +253,7 @@ CREATE POLICY "Clients can insert new orders"
             -- Authenticated user: email MUST match JWT email
             (auth.role() = 'authenticated' AND auth.jwt() ->> 'email' IS NOT NULL AND "userEmail" = (auth.jwt() ->> 'email'))
             OR
-            -- Anonymous user: CANNOT forge arbitrary emails; userEmail must be NULL or strictly matched to parameters.walletAddress
-            (auth.role() = 'anon' AND (
-                "userEmail" IS NULL
-                OR (
-                    parameters->>'walletAddress' IS NOT NULL
-                    AND "userEmail" = lower(parameters->>'walletAddress') || '@web3.agentuniver.com'
-                )
-            ))
+            -- Anonymous user: CANNOT forge arbitrary emails; userEmail MUST be NULL (P1-3)
+            (auth.role() = 'anon' AND "userEmail" IS NULL)
         )
     );

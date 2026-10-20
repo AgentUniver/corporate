@@ -742,12 +742,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (statusCode === 429 || err?.code === 'ACP_LEDGER_ERROR') {
           await supabase.from('agent_tasks').update({
             status: 'escrowed',
+            payoutStatus: 'escrowed',
             updatedAt: new Date().toISOString(),
             version: revertVersion
           }).eq('id', task_id).eq('status', 'processing').eq('version', lockedVersion);
         } else if (statusCode >= 400 && statusCode < 500 && statusCode !== 409) {
           await supabase.from('agent_tasks').update({
             status: 'failed',
+            payoutStatus: 'failed',
             updatedAt: new Date().toISOString(),
             version: revertVersion
           }).eq('id', task_id).eq('status', 'processing').eq('version', lockedVersion);

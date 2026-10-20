@@ -7,8 +7,27 @@ import {
   isValidDeliverablePayload
 } from '../src/lib/arbitration/validator.ts';
 
-test('P0-A & N2: All Auditor POC Defective Deliverables Must Fail-Closed', async (t) => {
+test('P0-A & N2 & P0-1 & P0-2: All Auditor POC Defective Deliverables Must Fail-Closed', async (t) => {
   const defectivePOCs = [
+    // Round 12 P0-1 penetration POCs
+    { name: '{ output: { status: "FAIL" } }', payload: { output: { status: 'FAIL' } } },
+    { name: '{ output: { error: { code: 500 } } }', payload: { output: { error: { code: 500 } } } },
+    { name: '{ text: "done." }', payload: { text: 'done.' } },
+    { name: '{ text: "12345" }', payload: { text: '12345' } },
+    { name: 'Zero-width spaces: { text: "\\u200B\\u200B\\u200B\\u200B\\u200B" }', payload: { text: '\u200B\u200B\u200B\u200B\u200B' } },
+    { name: '{ text: "-----" }', payload: { text: '-----' } },
+    { name: '{ text: "passed" }', payload: { text: 'passed' } },
+    { name: '{ score: 0 }', payload: { score: 0 } },
+    { name: '{ metrics: { score: 0 } }', payload: { metrics: { score: 0 } } },
+    { name: '[{ value: 1 }]', payload: [{ value: 1 }] },
+    { name: '{ url: "https://" }', payload: { url: 'https://' } },
+    { name: '{ output: { success: false, summary: "Substantive summary that should be blocked" } }', payload: { output: { success: false, summary: 'Substantive summary that should be blocked' } } },
+    { name: '{ issues: [{ type: "bug", severity: "low" }] }', payload: { issues: [{ type: 'bug', severity: 'low' }] } },
+
+    // Round 12 P0-2 volume metering forgery POCs
+    { name: 'P0-2 Forgery: { verifiedCount: 1000, text: "一句报告" } (qty=1000)', payload: { verifiedCount: 1000, text: '一句报告技术分析文档已生成' }, qty: 1000 },
+    { name: 'P0-2 Forgery: { verifiedCount: 1000, output: { items: [{ title: "a", description: "substantive text" }] } } (qty=1000)', payload: { verifiedCount: 1000, output: { items: [{ title: 'a', description: 'substantive text' }] } }, qty: 1000 },
+
     // Round 11 P0-A new POCs
     { name: '{ output: "done" }', payload: { output: 'done' } },
     { name: '{ data: "x" }', payload: { data: 'x' } },
@@ -197,6 +216,10 @@ test('P1-1 & P1-2: Monotonic Version CAS Fencing Simulation Across All Lifecycle
     if (nextVer <= record.version) {
       throw new Error('Monotonic version violation');
     }
+    // Simulate DB trigger: terminal state immutability (P1-6)
+    if (['verified', 'completed', 'refunded', 'cancelled'].includes(record.status) && newStatus !== record.status) {
+      throw new Error('Terminal state immutability violation: Cannot transition task from terminal status');
+    }
     record = { ...record, status: newStatus, version: nextVer };
     return { success: true, version: record.version };
   }
@@ -225,4 +248,35 @@ test('P1-1 & P1-2: Monotonic Version CAS Fencing Simulation Across All Lifecycle
   const settle = executeCAS(4, 'verified');
   assert.strictEqual(settle.success, true);
   assert.strictEqual(record.version, 5);
+
+  // 5. Terminal State Immutability check (P1-6): verified cannot transition back to processing or escrowed
+  assert.throws(() => {
+    executeCAS(5, 'processing');
+  }, /Terminal state immutability violation/);
+});
+
+test('P0-2: Legitimate Multi-Item Deliverables Meeting Required Volume Must Settle', async () => {
+  const legitMultiItem = {
+    records: Array.from({ length: 5 }, (_, i) => ({
+      id: `REC-${i + 1}`,
+      name: `Record ${i + 1}`,
+      description: `Substantive validated record description for item ${i + 1}`
+    })),
+    verifiedCount: 5
+  };
+  const report = await validateDeliverableSchema(legitMultiItem, 5);
+  assert.strictEqual(report.valid, true);
+  assert.strictEqual(report.integrityScore, 100);
+  assert.strictEqual(report.verifiedCount, 5);
+
+  const verdict = await evaluateDisputeArbitration(
+    {
+      id: 'ord-legit-multi',
+      status: 'delivered',
+      resultPayload: legitMultiItem,
+      quantity: 5
+    },
+    'Dispute against valid multi-item delivery'
+  );
+  assert.strictEqual(verdict.ruling, 'settle_developer');
 });

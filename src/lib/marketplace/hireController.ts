@@ -287,7 +287,7 @@ export function initHireModal(): void {
         quantity,
         unitPriceUsd: unitPrice,
         budgetUsd: budget,
-        userEmail: wallet ? `${wallet.substring(0, 8)}@web3.agentuniver.com` : 'guest@agentuniver.com',
+        userEmail: undefined,
         estimatedComputeUsd: estimatedCompute,
         estimatedLoopSteps: loopSteps,
         urgencyMultiplier,

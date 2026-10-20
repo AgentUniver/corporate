@@ -70,14 +70,12 @@ export async function hireAgentTask(taskData: Omit<TaskOrder, 'id' | 'createdAt'
 
   if (supabase) {
     try {
-      // 优先从真实 JWT 鉴权会话获取已认证真实邮箱；未登录且有钱包则绑定规范 web3 邮箱，否则为空（杜绝伪造）
+      // 优先从真实 JWT 鉴权会话获取已认证真实邮箱；未登录或匿名客户端统一置空（杜绝伪造邮箱注入幽灵单，P1-③）
       const { data: authData } = await supabase.auth.getUser().catch(() => ({ data: { user: null } }));
       if (authData?.user?.email) {
         newOrder.userEmail = authData.user.email;
-      } else if (newOrder.parameters?.walletAddress) {
-        newOrder.userEmail = `${String(newOrder.parameters.walletAddress).toLowerCase()}@web3.agentuniver.com`;
       } else {
-        newOrder.userEmail = undefined;
+        delete (newOrder as any).userEmail;
       }
 
       const { error } = await supabase
