@@ -740,19 +740,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       try {
         const revertVersion = lockedVersion + 1;
         if (statusCode === 429 || err?.code === 'ACP_LEDGER_ERROR') {
-          await supabase.from('agent_tasks').update({
+          const { error: revertErr } = await supabase.from('agent_tasks').update({
             status: 'escrowed',
             payoutStatus: 'escrowed',
             updatedAt: new Date().toISOString(),
             version: revertVersion
-          }).eq('id', task_id).eq('status', 'processing').eq('version', lockedVersion);
+          }).eq('id', task_id).eq('status', 'processing').eq('version', lockedVersion).select('id, version');
+          if (revertErr) {
+            console.warn('Supabase task revert to escrowed error:', revertErr);
+          }
         } else if (statusCode >= 400 && statusCode < 500 && statusCode !== 409) {
-          await supabase.from('agent_tasks').update({
+          const { error: failErr } = await supabase.from('agent_tasks').update({
             status: 'failed',
             payoutStatus: 'failed',
             updatedAt: new Date().toISOString(),
             version: revertVersion
-          }).eq('id', task_id).eq('status', 'processing').eq('version', lockedVersion);
+          }).eq('id', task_id).eq('status', 'processing').eq('version', lockedVersion).select('id, version');
+          if (failErr) {
+            console.warn('Supabase task failure record update error:', failErr);
+          }
         }
       } catch (dbErr) {
         console.warn('Supabase task failure record update error:', dbErr);

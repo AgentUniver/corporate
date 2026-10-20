@@ -1,18 +1,54 @@
 -- Migration: 20261020210000_harden_agent_tasks.sql
--- Description: Harden agent_tasks trigger for terminal state immutability (P1-6) and anon RLS null userEmail (P1-3)
+-- Description: Harden agent_tasks trigger for terminal state immutability (P1-4), version guard (P0-2), dirty row remediation, and anon RLS (P1-3)
 
--- 1. Upgrade monotonic version function to enforce terminal state immutability
+-- 0. Guarantee table and version column existence under arbitrary execution order (P1-8 / P0-2)
+CREATE TABLE IF NOT EXISTS agent_tasks (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    "taskToken" TEXT,
+    "userEmail" TEXT,
+    "agentId" TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    "payoutStatus" TEXT DEFAULT 'pending',
+    "budgetUsd" NUMERIC(10, 2) NOT NULL DEFAULT 10.00,
+    "platformFeeUsd" NUMERIC(10, 2) NOT NULL DEFAULT 0.00,
+    version INTEGER NOT NULL DEFAULT 1,
+    "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+DO $$
+BEGIN
+    -- Ensure version column exists on existing legacy tables
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'agent_tasks' AND column_name = 'version') THEN
+        ALTER TABLE agent_tasks ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
+    END IF;
+
+    -- Pre-repair legacy dirty status/payoutStatus pairs to ensure full validity
+    UPDATE agent_tasks SET "payoutStatus" = 'failed' WHERE status = 'failed' AND ("payoutStatus" IS NULL OR "payoutStatus" NOT IN ('refunded', 'failed'));
+    UPDATE agent_tasks SET "payoutStatus" = 'cancelled' WHERE status = 'cancelled' AND ("payoutStatus" IS NULL OR "payoutStatus" IN ('pending', 'escrowed'));
+    UPDATE agent_tasks SET "payoutStatus" = 'refunded' WHERE status = 'refunded' AND ("payoutStatus" IS NULL OR "payoutStatus" != 'refunded');
+    UPDATE agent_tasks SET "payoutStatus" = 'settled' WHERE status IN ('verified', 'completed') AND ("payoutStatus" IS NULL OR "payoutStatus" NOT IN ('settled', 'escrowed'));
+    UPDATE agent_tasks SET "payoutStatus" = 'escrowed' WHERE status = 'delivered' AND "payoutStatus" = 'settled';
+END $$;
+
+-- 1. Upgrade monotonic version function to enforce terminal state immutability (P1-4)
 CREATE OR REPLACE FUNCTION trg_agent_tasks_monotonic_version()
 RETURNS TRIGGER AS $$
 BEGIN
     -- Monotonic version fencing (P1-2)
-    IF NEW.version IS NULL OR NEW.version <= OLD.version THEN
+    IF NEW.version IS NULL OR (OLD.version IS NOT NULL AND NEW.version <= OLD.version) THEN
         RAISE EXCEPTION 'Monotonic version violation: NEW.version (%) must be strictly greater than OLD.version (%)', NEW.version, OLD.version;
     END IF;
 
-    -- Terminal state immutability (P1-6): verified, completed, refunded, cancelled are irreversible
-    IF OLD.status IN ('verified', 'completed', 'refunded', 'cancelled') AND NEW.status != OLD.status THEN
+    -- Terminal states cannot revert to active workflow states (P1-4)
+    IF OLD.status IN ('verified', 'completed', 'refunded', 'cancelled') 
+       AND NEW.status IN ('pending', 'escrowed', 'processing', 'delivered', 'disputed') THEN
         RAISE EXCEPTION 'Terminal state immutability violation: Cannot transition task from terminal status % to %', OLD.status, NEW.status;
+    END IF;
+
+    -- Hard terminal states (refunded, cancelled) are completely irreversible
+    IF OLD.status IN ('refunded', 'cancelled') AND NEW.status != OLD.status THEN
+        RAISE EXCEPTION 'Terminal state immutability violation: % status is irreversible', OLD.status;
     END IF;
 
     RETURN NEW;

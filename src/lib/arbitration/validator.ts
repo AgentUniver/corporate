@@ -62,11 +62,13 @@ export const TRIVIAL_PLACEHOLDERS = new Set([
   'done', 'ok', 'x', 'test', 'temp', 'foo', 'bar', 'none', 'na',
   'null', 'undefined', 'pass', 'passed', 'passing', 'success', 'true', 'false', '0', '1', '-1',
   'finished', 'complete', 'completed', 'yes', 'no', 'd', 'placeholder', 'sample', 'demo',
-  'mock', 'hello', 'world', 'helloworld', 'wip', 'asdf', 'qwerty'
+  'mock', 'hello', 'world', 'helloworld', 'wip', 'asdf', 'qwerty',
+  '待补充内容', '占位符内容', '测试', '示例', '暂无', '待定', '内容待定', '占位',
+  'lorem', 'ipsum', 'loremipsum', 'asdfgh', 'qwertyuiop'
 ]);
 
 /**
- * 递归全局深度检测是否包含错误标识 (遍历任意层级的对象与数组，P0-A / P0-1)
+ * 递归全局深度检测是否包含错误标识 (遍历任意层级的对象与数组，P0-A / P0-1 / P1-1)
  */
 export function hasErrorFlag(obj: any, depth = 0): boolean {
   if (depth > 10 || !obj) return false;
@@ -74,29 +76,43 @@ export function hasErrorFlag(obj: any, depth = 0): boolean {
     return obj.some(item => hasErrorFlag(item, depth + 1));
   }
   if (typeof obj === 'object') {
-    // 1. error / err 字段存在且非假值（包括布尔值 true、非空字符串、数值、或任何错误对象如 { code: 500 }）
-    if (obj.error === true) return true;
-    if (typeof obj.error === 'string' && obj.error.trim().length > 0) return true;
-    if (typeof obj.error === 'number' && obj.error !== 0) return true;
-    if (typeof obj.error === 'object' && obj.error !== null) return true;
+    // 1. error / err 字段存在且非假值、非空数组、非空对象
+    if (obj.error !== undefined && obj.error !== null) {
+      if (typeof obj.error === 'boolean' && obj.error === true) return true;
+      if (typeof obj.error === 'string' && obj.error.trim().length > 0) return true;
+      if (typeof obj.error === 'number' && obj.error !== 0) return true;
+      if (Array.isArray(obj.error) && obj.error.length > 0) return true;
+      if (typeof obj.error === 'object' && !Array.isArray(obj.error) && Object.keys(obj.error).length > 0) return true;
+    }
 
-    if (obj.err === true) return true;
-    if (typeof obj.err === 'string' && obj.err.trim().length > 0) return true;
-    if (typeof obj.err === 'number' && obj.err !== 0) return true;
-    if (typeof obj.err === 'object' && obj.err !== null) return true;
+    if (obj.err !== undefined && obj.err !== null) {
+      if (typeof obj.err === 'boolean' && obj.err === true) return true;
+      if (typeof obj.err === 'string' && obj.err.trim().length > 0) return true;
+      if (typeof obj.err === 'number' && obj.err !== 0) return true;
+      if (Array.isArray(obj.err) && obj.err.length > 0) return true;
+      if (typeof obj.err === 'object' && !Array.isArray(obj.err) && Object.keys(obj.err).length > 0) return true;
+    }
 
     // 2. 显式成功标志被置为 false
     if (obj.success === false || obj.ok === false) return true;
 
-    // 3. 状态枚举指示失败 (包含 FAIL, ERR, FATAL, REJECT, INVALID, BROKEN 等)
+    // 3. 状态枚举指示失败 (精确匹配词元，杜绝 REFERRAL / TRANSFERRED / PREFERRED 误杀，P1-1)
     const statusStr = String(obj.status || obj.state || obj.result_status || '').toUpperCase().trim();
     if (statusStr.length > 0) {
-      const FAIL_KEYWORDS = ['FAIL', 'ERR', 'FATAL', 'REJECT', 'INVALID', 'BROKEN', 'ABORT', 'CANCEL', 'EXCEPTION'];
-      if (FAIL_KEYWORDS.some(kw => statusStr.includes(kw))) return true;
+      const FAIL_EXACT_TOKENS = new Set([
+        'FAIL', 'FAILED', 'FAILURE', 'ERROR', 'FATAL', 'REJECT', 'REJECTED',
+        'INVALID', 'BROKEN', 'ABORT', 'ABORTED', 'CANCELLED', 'EXCEPTION'
+      ]);
+      const tokens = statusStr.split(/[\s_\-.:/,]+/);
+      if (tokens.some(t => FAIL_EXACT_TOKENS.has(t))) return true;
     }
 
-    // 4. HTTP 错误代码 (4xx / 5xx)
-    if (typeof obj.code === 'number' && obj.code >= 400 && obj.code <= 599) return true;
+    // 4. HTTP 错误代码 (4xx / 5xx 仅在伴随错误语义上下文时拦截，避免误杀常规 404 报告，P1-1)
+    if (typeof obj.code === 'number' && obj.code >= 400 && obj.code <= 599) {
+      if (obj.error || obj.err || obj.exception || obj.stack || String(obj.message || '').toLowerCase().includes('error')) {
+        return true;
+      }
+    }
 
     return Object.values(obj).some(val => hasErrorFlag(val, depth + 1));
   }
@@ -108,23 +124,39 @@ export function hasErrorFlag(obj: any, depth = 0): boolean {
  */
 export function isSubstantiveText(text: any, minLen = 5): boolean {
   if (typeof text !== 'string') return false;
-  // 1. 过滤零宽字符、非断行空格及控制换行符
-  const stripped = text.replace(/[\u200B-\u200D\uFEFF\u00A0\r\n\t]/g, '').trim();
-  if (stripped.length < minLen) return false;
+  // 1. Unicode 规范化并过滤零宽字符、非断行空格及控制换行符
+  const normalizedUnicode = text.normalize('NFKC');
+  const stripped = normalizedUnicode.replace(/[\u200B-\u200D\uFEFF\u00A0\r\n\t]/g, '').trim();
+  if (stripped.replace(/\s+/g, '').length < minLen) return false;
 
-  // 2. 必须包含至少一个有效英文字母或中文字符（拒绝 "12345"、"-----"、"..." 等无语义字符）
+  // 2. 防西里尔/希腊同形字母混淆 (如用西里尔 "е" 拼写 "passеd")
+  if (/[a-zA-Z]/.test(stripped) && /[\u0400-\u04FF\u0370-\u03FF]/.test(stripped)) {
+    return false;
+  }
+
+  // 3. 必须包含至少一个有效英文字母或中文字符（拒绝 "12345"、"-----"、"..." 等无语义字符）
   if (!/[a-zA-Z\u4e00-\u9fa5]/.test(stripped)) {
     return false;
   }
 
-  // 3. 剔除标点符号并小写后对比占位符字典（拒绝 "done."、"passed" 等变形占位符）
-  const normalized = stripped.toLowerCase().replace(/[^a-z0-9]/g, '');
+  // 4. 剔除标点符号并小写后对比占位符字典（拒绝 "done."、"passed" 等变形占位符与中文占位）
+  const normalized = stripped.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]/g, '');
   if (TRIVIAL_PLACEHOLDERS.has(normalized) || TRIVIAL_PLACEHOLDERS.has(stripped.toLowerCase())) {
     return false;
   }
 
-  // 4. 单字符重复检测 (如 "aaaaaa", "xxxxxx")
+  // 5. Lorem ipsum 填充文本拦截
+  if (normalized.includes('loremipsum') || normalized.startsWith('lorem')) {
+    return false;
+  }
+
+  // 5. 单字符重复检测 (如 "aaaaaa", "xxxxxx")
   if (/^(.)\1+$/.test(normalized)) {
+    return false;
+  }
+
+  // 6. Base64 无空格随机垃圾串拦截 (>30 字符无分隔)
+  if (/^[A-Za-z0-9+/=]{30,}$/.test(stripped)) {
     return false;
   }
 
@@ -169,10 +201,17 @@ function isValidIssueList(issues: any): boolean {
   return issues.every(item => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
     if (hasErrorFlag(item)) return false;
-    // Each issue MUST contain substantive textual description in message/description/suggestion/reason/summary/detail (P0-1)
-    const descriptiveKeys = ['message', 'description', 'suggestion', 'reason', 'summary', 'detail'];
-    const hasSubstantiveTextContent = descriptiveKeys.some(k => isSubstantiveText(item[k], 5));
-    return hasSubstantiveTextContent;
+    // 1. 包含实质性描述字段 (message/description/suggestion 等)
+    const descriptiveKeys = ['message', 'description', 'suggestion', 'reason', 'summary', 'detail', 'title'];
+    const hasSubstantiveTextContent = descriptiveKeys.some(k => isSubstantiveText(item[k], 3));
+    if (hasSubstantiveTextContent) return true;
+
+    // 2. 标准静态代码检查格式：包含 rule + severity + line/file (避免误杀结构化 linter 交付，P1-1)
+    if (item.rule && item.severity && (item.line !== undefined || item.file !== undefined)) {
+      return true;
+    }
+
+    return false;
   });
 }
 
@@ -194,7 +233,12 @@ function isValidStructuredItem(item: any): boolean {
   const keys = Object.keys(item);
   if (keys.length === 0) return false;
 
-  // Reject bare metadata objects like { value: 1 } or { id: 1 }
+  // 支持数值数据集条目如 { id: "metric-1", value: 42 } (避免误杀 legit 数据集，P1-1)
+  if (item.id !== undefined && typeof item.value === 'number' && Number.isFinite(item.value)) {
+    return true;
+  }
+
+  // Reject bare metadata objects like { value: 1 } or { id: 1 } without other context
   const substantiveKeys = keys.filter(k => k !== 'id' && k !== 'index' && k !== 'type' && k !== 'value');
   if (substantiveKeys.length === 0) return false;
 
@@ -295,6 +339,26 @@ export function isValidDeliverablePayload(val: any, depth = 0): boolean {
       return false;
     }
 
+    // 拒绝单独 {score: 1} 作为交付物（P1-3）
+    if (substantiveKeys.length === 1 && substantiveKeys[0] === 'score') {
+      return false;
+    }
+
+    // 若对象内包含条目集合，则集合内的每个元素必须全部合法，禁止局部非法（P0-1 消除 some 旁路）
+    const collectionKeys = ['records', 'items', 'findings', 'rows'];
+    for (const ck of collectionKeys) {
+      if (Array.isArray(val[ck])) {
+        if (val[ck].length === 0 || !val[ck].every(item => isValidStructuredItem(item))) {
+          return false;
+        }
+      }
+    }
+    if (val.issues && Array.isArray(val.issues)) {
+      if (val.issues.length === 0 || !isValidIssueList(val.issues)) {
+        return false;
+      }
+    }
+
     // 遍历所有白名单字段进行专门契约校验
     return substantiveKeys.some(k => {
       const v = val[k];
@@ -316,6 +380,18 @@ export function isValidDeliverablePayload(val: any, depth = 0): boolean {
       // Issues 类产物 (P0-1)
       if (k === 'issues') {
         return isValidIssueList(v);
+      }
+      // Git commit SHA (P1-2)
+      if (k === 'sha') {
+        return typeof v === 'string' && /^[a-fA-F0-9]{7,64}$/.test(v.trim());
+      }
+      // Git code diff (P1-2)
+      if (k === 'diff') {
+        return isSubstantiveText(v, 10);
+      }
+      // Repository path / URL (P1-2)
+      if (k === 'repo') {
+        return typeof v === 'string' && (v.includes('/') || isValidUrl(v));
       }
       // 结构化条目数组（findings, records, items, rows）
       if (['findings', 'records', 'items', 'rows'].includes(k)) {
@@ -414,6 +490,34 @@ export async function validateDeliverableSchema(
       integrityScore = 0;
     } else {
       const foundCollection = extractCollectionArray(payload);
+
+      // 集合数组逐元素强制有效性校验（消灭 some 旁路漏洞，P0-1）
+      if (foundCollection) {
+        if (foundCollection.length === 0) {
+          errors.push('Collection array contains 0 records');
+          integrityScore = 0;
+        } else {
+          let defectiveCount = 0;
+          for (const item of foundCollection) {
+            if (!isValidStructuredItem(item)) {
+              defectiveCount++;
+            }
+          }
+          if (defectiveCount > 0) {
+            errors.push(`Detected ${defectiveCount} invalid/defective items in collection array of ${foundCollection.length} records`);
+            integrityScore = 0;
+          }
+        }
+
+        // 防刷屏去重校验：若元素超过 10 条且前 10 条完全相同，视为伪造占位符（P0-1）
+        if (foundCollection.length >= 10) {
+          const sample = foundCollection.slice(0, 10).map(i => JSON.stringify(i));
+          if (sample.every(s => s === sample[0])) {
+            errors.push('Collection array consists of identical duplicate placeholder items');
+            integrityScore = 0;
+          }
+        }
+      }
 
       // 记录数与容量匹配规则 (P0-2)
       if (payload.verifiedCount !== undefined) {

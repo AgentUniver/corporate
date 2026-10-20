@@ -9,6 +9,19 @@ import {
 
 test('P0-A & N2 & P0-1 & P0-2: All Auditor POC Defective Deliverables Must Fail-Closed', async (t) => {
   const defectivePOCs = [
+    // Round 13 P0-① bypass POCs (empty/bogus collection items masked by sibling fields)
+    { name: '{ verifiedCount: 1000, records: [{} x 1000], metrics: { score: 1 } }', payload: { verifiedCount: 1000, records: Array(1000).fill({}), metrics: { score: 1 } }, qty: 1000 },
+    { name: '{ verifiedCount: 1000, records: [{} x 1000], text: "real report text" }', payload: { verifiedCount: 1000, records: Array(1000).fill({}), text: 'real substantive report text' }, qty: 1000 },
+    { name: '{ verifiedCount: 1000, items: [{ foo: 1 } x 1000], metrics: { score: 1 } }', payload: { verifiedCount: 1000, items: Array(1000).fill({ foo: 1 }), metrics: { score: 1 } }, qty: 1000 },
+    { name: '{ verifiedCount: 1000, output: { records: [{} x 1000] }, metrics: { score: 1 } }', payload: { verifiedCount: 1000, output: { records: Array(1000).fill({}) }, metrics: { score: 1 } }, qty: 1000 },
+    { name: '{ verifiedCount: 1000, records: [{} x 1000], summary: "valid summary" }', payload: { verifiedCount: 1000, records: Array(1000).fill({}), summary: 'valid substantive summary text' }, qty: 1000 },
+    { name: '{ verifiedCount: 1000, records: [{ title: "a b" } x 1000] }', payload: { verifiedCount: 1000, records: Array(1000).fill({ title: 'a b' }) }, qty: 1000 },
+    { name: '{ verifiedCount: 1000, records: [{ title: "Record 1" } x 1000] } (identical spam)', payload: { verifiedCount: 1000, records: Array(1000).fill({ title: 'Record 1', description: 'valid description' }) }, qty: 1000 },
+    { name: 'Sole { score: 1 } deliverable', payload: { score: 1 } },
+    { name: 'Cyrillic homoglyph: { text: "passеd" }', payload: { text: 'pass\u0435d' } },
+    { name: 'Chinese placeholder: { text: "待补充内容" }', payload: { text: '待补充内容' } },
+    { name: 'Lorem placeholder: { text: "lorem ipsum dolor sit amet" }', payload: { text: 'lorem ipsum dolor sit amet' } },
+
     // Round 12 P0-1 penetration POCs
     { name: '{ output: { status: "FAIL" } }', payload: { output: { status: 'FAIL' } } },
     { name: '{ output: { error: { code: 500 } } }', payload: { output: { error: { code: 500 } } } },
@@ -122,6 +135,52 @@ test('P0-D: All 9 Canonical Top-Level Deliverable Shapes Must Pass SLA and Settl
       payload: {
         metrics: { accuracy: 0.99, latencyP99: 42, score: 98 }
       }
+    },
+    {
+      name: '10. Top-level sha shape: { sha }',
+      payload: { sha: '02bde4eac4eb9c5d9456d77da4dedd23552dadd6' }
+    },
+    {
+      name: '11. Top-level diff shape: { diff }',
+      payload: { diff: '--- a/file.ts\n+++ b/file.ts\n@@ -1,3 +1,3 @@\n-old code\n+new optimized code' }
+    },
+    {
+      name: '12. Top-level repo shape: { repo }',
+      payload: { repo: 'Leopard/AgentUniver' }
+    },
+    {
+      name: '13. Numeric dataset shape: { records }',
+      payload: {
+        records: [
+          { id: 'REC-1', value: 42 },
+          { id: 'REC-2', value: 84 }
+        ],
+        verifiedCount: 2
+      },
+      qty: 2
+    },
+    {
+      name: '14. Structured static analysis linter issues: { issues }',
+      payload: {
+        issues: [
+          { rule: 'security/no-eval', line: 12, severity: 'error' },
+          { rule: 'correctness/no-unused-vars', file: 'main.ts', severity: 'warning' }
+        ]
+      }
+    },
+    {
+      name: '15. Legit audit finding with REFERRAL/TRANSFERRED words',
+      payload: {
+        summary: 'Audit report regarding PREFERRED and TRANSFERRED REFERRAL status',
+        analysis: 'Detailed investigation into referral mechanism'
+      }
+    },
+    {
+      name: '16. Legit audit finding with error: [] array',
+      payload: {
+        summary: 'Inspection completed cleanly with zero findings',
+        error: []
+      }
     }
   ];
 
@@ -151,7 +210,7 @@ test('P0-D: All 9 Canonical Top-Level Deliverable Shapes Must Pass SLA and Settl
   }
 });
 
-test('P1-3 & P0-B: Exhaustive 54-Pair Matrix Check of (status, payoutStatus)', () => {
+test('P1-3 & P0-B: Exhaustive 60-Pair Matrix Check of (status, payoutStatus)', () => {
   const allStatuses = [
     'pending', 'escrowed', 'processing', 'delivered', 'disputed',
     'verified', 'completed', 'refunded', 'failed', 'cancelled'
@@ -216,9 +275,12 @@ test('P1-1 & P1-2: Monotonic Version CAS Fencing Simulation Across All Lifecycle
     if (nextVer <= record.version) {
       throw new Error('Monotonic version violation');
     }
-    // Simulate DB trigger: terminal state immutability (P1-6)
-    if (['verified', 'completed', 'refunded', 'cancelled'].includes(record.status) && newStatus !== record.status) {
+    // Simulate DB trigger: terminal state immutability (P1-4)
+    if (['verified', 'completed', 'refunded', 'cancelled'].includes(record.status) && ['pending', 'escrowed', 'processing', 'delivered', 'disputed'].includes(newStatus)) {
       throw new Error('Terminal state immutability violation: Cannot transition task from terminal status');
+    }
+    if (['refunded', 'cancelled'].includes(record.status) && newStatus !== record.status) {
+      throw new Error('Terminal state immutability violation: Status is irreversible');
     }
     record = { ...record, status: newStatus, version: nextVer };
     return { success: true, version: record.version };
@@ -249,9 +311,14 @@ test('P1-1 & P1-2: Monotonic Version CAS Fencing Simulation Across All Lifecycle
   assert.strictEqual(settle.success, true);
   assert.strictEqual(record.version, 5);
 
-  // 5. Terminal State Immutability check (P1-6): verified cannot transition back to processing or escrowed
+  // 5. Terminal state transition: verified -> completed is ALLOWED (both terminal, P1-4)
+  const complete = executeCAS(5, 'completed');
+  assert.strictEqual(complete.success, true);
+  assert.strictEqual(record.version, 6);
+
+  // 6. Terminal State Immutability check: completed cannot transition back to processing or escrowed
   assert.throws(() => {
-    executeCAS(5, 'processing');
+    executeCAS(6, 'processing');
   }, /Terminal state immutability violation/);
 });
 

@@ -84,6 +84,13 @@ END $$;
 -- =========================================================================
 DO $$
 BEGIN
+    -- Pre-repair legacy dirty status/payoutStatus pairs to ensure full validity on upgrade
+    UPDATE agent_tasks SET "payoutStatus" = 'failed' WHERE status = 'failed' AND ("payoutStatus" IS NULL OR "payoutStatus" NOT IN ('refunded', 'failed'));
+    UPDATE agent_tasks SET "payoutStatus" = 'cancelled' WHERE status = 'cancelled' AND ("payoutStatus" IS NULL OR "payoutStatus" IN ('pending', 'escrowed'));
+    UPDATE agent_tasks SET "payoutStatus" = 'refunded' WHERE status = 'refunded' AND ("payoutStatus" IS NULL OR "payoutStatus" != 'refunded');
+    UPDATE agent_tasks SET "payoutStatus" = 'settled' WHERE status IN ('verified', 'completed') AND ("payoutStatus" IS NULL OR "payoutStatus" NOT IN ('settled', 'escrowed'));
+    UPDATE agent_tasks SET "payoutStatus" = 'escrowed' WHERE status = 'delivered' AND "payoutStatus" = 'settled';
+
     -- 1. Status Check Constraint Rebuild (Gracefully supports historic cancelled status without data loss, P0-B)
     ALTER TABLE agent_tasks DROP CONSTRAINT IF EXISTS "agent_tasks_status_check";
     ALTER TABLE agent_tasks DROP CONSTRAINT IF EXISTS agent_tasks_status_check;
@@ -158,19 +165,25 @@ CREATE INDEX IF NOT EXISTS idx_agent_tasks_updated_at ON agent_tasks ("updatedAt
 CREATE INDEX IF NOT EXISTS idx_agent_tasks_version ON agent_tasks (version);
 
 -- =========================================================================
--- Phase 4: DB-Side Monotonic Version Enforcement Trigger (P1-2)
+-- Phase 4: DB-Side Monotonic Version Enforcement Trigger (P1-2 / P1-4)
 -- =========================================================================
 CREATE OR REPLACE FUNCTION trg_agent_tasks_monotonic_version()
 RETURNS TRIGGER AS $$
 BEGIN
     -- 1. Monotonic version fencing (P1-2)
-    IF NEW.version IS NULL OR NEW.version <= OLD.version THEN
+    IF NEW.version IS NULL OR (OLD.version IS NOT NULL AND NEW.version <= OLD.version) THEN
         RAISE EXCEPTION 'Monotonic version violation: NEW.version (%) must be strictly greater than OLD.version (%)', NEW.version, OLD.version;
     END IF;
 
-    -- 2. Terminal state immutability (P1-6): verified, completed, refunded, cancelled are irreversible
-    IF OLD.status IN ('verified', 'completed', 'refunded', 'cancelled') AND NEW.status != OLD.status THEN
+    -- 2. Terminal states cannot revert to active workflow states (P1-4)
+    IF OLD.status IN ('verified', 'completed', 'refunded', 'cancelled') 
+       AND NEW.status IN ('pending', 'escrowed', 'processing', 'delivered', 'disputed') THEN
         RAISE EXCEPTION 'Terminal state immutability violation: Cannot transition task from terminal status % to %', OLD.status, NEW.status;
+    END IF;
+
+    -- 3. Hard terminal states (refunded, cancelled) are completely irreversible
+    IF OLD.status IN ('refunded', 'cancelled') AND NEW.status != OLD.status THEN
+        RAISE EXCEPTION 'Terminal state immutability violation: % status is irreversible', OLD.status;
     END IF;
 
     RETURN NEW;
