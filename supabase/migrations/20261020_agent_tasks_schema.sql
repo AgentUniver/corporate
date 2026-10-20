@@ -67,7 +67,7 @@ BEGIN
         ALTER TABLE agent_tasks ADD COLUMN "payoutStatus" TEXT;
     END IF;
 
-    -- 2. Status Check Constraint Rebuild
+    -- 2. Status Check Constraint Rebuild with NOT VALID / VALIDATE
     ALTER TABLE agent_tasks DROP CONSTRAINT IF EXISTS "agent_tasks_status_check";
     ALTER TABLE agent_tasks DROP CONSTRAINT IF EXISTS agent_tasks_status_check;
     ALTER TABLE agent_tasks DROP CONSTRAINT IF EXISTS check_agent_tasks_status;
@@ -83,17 +83,30 @@ BEGIN
             'failed',
             'completed'
         )
-    );
+    ) NOT VALID;
+    ALTER TABLE agent_tasks VALIDATE CONSTRAINT "agent_tasks_status_check";
     ALTER TABLE agent_tasks ALTER COLUMN status SET DEFAULT 'escrowed';
 
-    -- 3. PayoutStatus Check Constraint Rebuild (Handle both quoted mixed-case and unquoted lowercase)
+    -- 3. PayoutStatus Check Constraint Rebuild with NOT VALID / VALIDATE
     ALTER TABLE agent_tasks DROP CONSTRAINT IF EXISTS "agent_tasks_payoutStatus_check";
     ALTER TABLE agent_tasks DROP CONSTRAINT IF EXISTS agent_tasks_payoutStatus_check;
     ALTER TABLE agent_tasks DROP CONSTRAINT IF EXISTS agent_tasks_payoutstatus_check;
     ALTER TABLE agent_tasks DROP CONSTRAINT IF EXISTS check_agent_tasks_payout_status;
     ALTER TABLE agent_tasks ADD CONSTRAINT "agent_tasks_payoutStatus_check" CHECK (
         "payoutStatus" IS NULL OR "payoutStatus" IN ('pending', 'escrowed', 'settled', 'refunded', 'failed')
-    );
+    ) NOT VALID;
+    ALTER TABLE agent_tasks VALIDATE CONSTRAINT "agent_tasks_payoutStatus_check";
+
+    -- 4. Cross-Field Financial Ledger Consistency Check with NOT VALID / VALIDATE
+    ALTER TABLE agent_tasks DROP CONSTRAINT IF EXISTS "agent_tasks_status_payout_consistency_check";
+    ALTER TABLE agent_tasks ADD CONSTRAINT "agent_tasks_status_payout_consistency_check" CHECK (
+        NOT (status = 'refunded' AND "payoutStatus" = 'settled')
+        AND NOT (status = 'verified' AND "payoutStatus" = 'refunded')
+    ) NOT VALID;
+    ALTER TABLE agent_tasks VALIDATE CONSTRAINT "agent_tasks_status_payout_consistency_check";
+
+    -- 5. Safe Default Token Generation for Serverless Workflows
+    ALTER TABLE agent_tasks ALTER COLUMN "taskToken" SET DEFAULT ('tok_' || replace(gen_random_uuid()::text, '-', ''));
 END $$;
 
 -- Indexes for high-frequency queries and joins
@@ -131,18 +144,33 @@ CREATE POLICY "Clients can insert new orders"
         AND "budgetUsd" >= 0.05
         AND "budgetUsd" <= 10000.00
         AND "platformFeeUsd" >= 0
-        AND "taskToken" IS NULL
+        AND (
+            "taskToken" IS NULL
+            OR ("taskToken" ~ '^tok_[a-zA-Z0-9]{16,64}$' AND length("taskToken") >= 20)
+        )
         AND "payoutAddress" IS NULL
         AND "payoutTxHash" IS NULL
         AND "deliverableFingerprint" IS NULL
         AND "arbitrationVerdict" IS NULL
         AND "resultPayload" IS NULL
+        AND (
+            (auth.role() = 'authenticated' AND ("userEmail" IS NULL OR "userEmail" = (auth.jwt() ->> 'email')))
+            OR
+            (auth.role() = 'anon' AND ("userEmail" IS NULL OR "userEmail" = 'guest@agentuniver.com' OR "userEmail" ~ '^[a-zA-Z0-9_]{6,42}@web3\.agentuniver\.com$'))
+        )
     );
 
--- 4. Authenticated clients can view only their own task records by email match
+-- 4. Clients can view orders they own or guest/web3 orders they created
 DROP POLICY IF EXISTS "Authenticated users can view own orders" ON agent_tasks;
-CREATE POLICY "Authenticated users can view own orders"
+DROP POLICY IF EXISTS "Clients can view own orders" ON agent_tasks;
+CREATE POLICY "Clients can view own orders"
     ON agent_tasks
     FOR SELECT
-    TO authenticated
-    USING (auth.jwt() ->> 'email' = "userEmail");
+    TO anon, authenticated
+    USING (
+        (auth.role() = 'authenticated' AND auth.jwt() ->> 'email' IS NOT NULL AND "userEmail" = (auth.jwt() ->> 'email'))
+        OR
+        ("taskToken" IS NOT NULL AND "taskToken" = (nullif(current_setting('request.headers', true), '')::json->>'x-task-token'))
+        OR
+        (auth.role() = 'anon' AND ("userEmail" = 'guest@agentuniver.com' OR "userEmail" ~ '^[a-zA-Z0-9_]{6,42}@web3\.agentuniver\.com$' OR "userEmail" IS NULL))
+    );

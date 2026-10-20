@@ -75,7 +75,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const { data: taskCheck, error: checkErr } = await supabase
       .from('agent_tasks')
-      .select('id, taskToken, quantity, slaThreshold, status, resultPayload, deliverableFingerprint, agent_slug, agentId')
+      .select('id, taskToken, quantity, slaThreshold, status, resultPayload, deliverableFingerprint, agent_slug, agentId, updatedAt')
       .eq('id', taskId)
       .single();
 
@@ -157,7 +157,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { data, error } = await supabase
+    let updateQuery = supabase
       .from('agent_tasks')
       .update({
         status: 'delivered',
@@ -168,8 +168,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ...(agent_slug && !existingTaskRecord.agent_slug && !existingTaskRecord.agentId ? { agent_slug, agentId: agent_slug } : {})
       })
       .eq('id', taskId)
-      .in('status', ['pending', 'escrowed', 'processing'])
-      .select('id, status, deliveredAt, deliverableFingerprint');
+      .in('status', ['pending', 'escrowed', 'processing']);
+
+    if (existingTaskRecord.updatedAt) {
+      updateQuery = updateQuery.eq('updatedAt', existingTaskRecord.updatedAt);
+    }
+
+    const { data, error } = await updateQuery.select('id, status, deliveredAt, deliverableFingerprint');
 
     if (error) {
       return res.status(500).json({
@@ -181,7 +186,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!data || data.length === 0) {
       return res.status(409).json({
         success: false,
-        error: { code: 'ACP_TASK_STATE_CONFLICT', message: `Task '${taskId}' was not in deliverable state` }
+        error: { code: 'ACP_TASK_STATE_CONFLICT', message: `Task '${taskId}' was modified concurrently or was not in deliverable state` }
       });
     }
 

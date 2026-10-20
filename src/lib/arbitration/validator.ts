@@ -45,6 +45,27 @@ export interface SchemaValidationReport {
   slaConformant: boolean;
 }
 
+/**
+ * 递归判断任意值是否为有实质内容的非空契约项 (Fail-closed)
+ */
+export function isNonEmptyValue(v: any, depth = 0): boolean {
+  if (depth > 6) return false;
+  if (v === null || v === undefined) return false;
+  if (typeof v === 'boolean') return v === true; // Strict: boolean false is defective/failed
+  if (typeof v === 'number') return Number.isFinite(v) && !Number.isNaN(v);
+  if (typeof v === 'string') return v.trim().length > 0;
+  if (Array.isArray(v)) {
+    if (v.length === 0) return false;
+    return v.every(item => isNonEmptyValue(item, depth + 1));
+  }
+  if (typeof v === 'object') {
+    const keys = Object.keys(v);
+    if (keys.length === 0) return false;
+    return keys.some(k => isNonEmptyValue(v[k], depth + 1));
+  }
+  return false;
+}
+
 function isValidIssueList(issues: any): boolean {
   if (!Array.isArray(issues) || issues.length === 0) return false;
   return issues.every(item => {
@@ -52,7 +73,7 @@ function isValidIssueList(issues: any): boolean {
     const keys = Object.keys(item);
     if (keys.length === 0) return false;
     const recognizedKeys = ['type', 'original', 'suggestion', 'reason', 'message', 'description', 'rule', 'line', 'file', 'severity'];
-    return keys.some(k => recognizedKeys.includes(k) && item[k] !== null && item[k] !== undefined && String(item[k]).trim().length > 0);
+    return keys.some(k => recognizedKeys.includes(k) && isNonEmptyValue(item[k], 1));
   });
 }
 
@@ -61,28 +82,50 @@ function isValidRadar(radar: any): boolean {
   const keys = Object.keys(radar);
   if (keys.length === 0) return false;
   const recognizedKeys = ['architecture', 'security', 'scalability', 'maintainability', 'reliability', 'score', 'metrics', 'findings', 'quality', 'testCoverage'];
-  return keys.some(k => recognizedKeys.includes(k) && radar[k] !== null && radar[k] !== undefined);
+  const validEntries = keys.filter(k => recognizedKeys.includes(k) && isNonEmptyValue(radar[k], 1));
+  return validEntries.length > 0;
 }
 
-function isValidDeliverablePayload(val: any): boolean {
-  if (val === null || val === undefined) return false;
+/**
+ * 递归校验 Deliverable Payload 深度契约有效性
+ */
+function isValidDeliverablePayload(val: any, depth = 0): boolean {
+  if (depth > 6) return false;
+  if (!isNonEmptyValue(val, depth)) return false;
+
   if (typeof val === 'string') return val.trim().length > 0;
   if (typeof val === 'number') return Number.isFinite(val);
-  if (typeof val === 'boolean') return true;
+  if (typeof val === 'boolean') return val === true;
+
   if (Array.isArray(val)) {
-    return val.length > 0 && val.some(item => item !== null && item !== undefined && (typeof item !== 'string' || item.trim().length > 0));
+    return val.length > 0 && val.every(item => isValidDeliverablePayload(item, depth + 1));
   }
+
   if (typeof val === 'object') {
     const keys = Object.keys(val);
     if (keys.length === 0) return false;
+
+    // 若包含 radar 或 issues 特化结构，必须深度有效
+    if (val.radar !== undefined && !isValidRadar(val.radar)) return false;
+    if (val.issues !== undefined && !isValidIssueList(val.issues)) return false;
+
+    // 针对数组内部或子对象（depth > 0），只要包含有效内容键值对即为合法数据实体
+    if (depth > 0) {
+      return keys.some(k => isNonEmptyValue(val[k], depth + 1));
+    }
+
     const recognizedKeys = [
       'analysis', 'summary', 'text', 'corrected', 'score', 'code', 'data', 'result',
       'items', 'records', 'rows', 'metrics', 'findings', 'content', 'url', 'sha',
       'issues', 'radar', 'status', 'token', 'verifiedCount', 'output', 'report',
-      'diff', 'benchmark', 'latency', 'model', 'answer', 'solution'
+      'diff', 'benchmark', 'latency', 'model', 'answer', 'solution', 'id', 'title',
+      'name', 'description', 'message', 'severity', 'type'
     ];
-    return keys.some(k => recognizedKeys.includes(k) && val[k] !== null && val[k] !== undefined && val[k] !== '');
+
+    const hasRecognized = keys.some(k => recognizedKeys.includes(k) && isValidDeliverablePayload(val[k], depth + 1));
+    return hasRecognized;
   }
+
   return false;
 }
 
@@ -126,10 +169,7 @@ export async function validateDeliverableSchema(
     } else {
       let emptyFieldCount = 0;
       payload.forEach((item) => {
-        if (typeof item === 'object' && item !== null) {
-          const keys = Object.keys(item);
-          if (keys.length === 0) emptyFieldCount++;
-        } else if (!item) {
+        if (!isNonEmptyValue(item)) {
           emptyFieldCount++;
         }
       });
@@ -163,6 +203,14 @@ export async function validateDeliverableSchema(
         integrityScore = 0;
       } else {
         recordCount = 1;
+      }
+
+      // Check array output length against declared verifiedCount
+      if (payload.output !== undefined && Array.isArray(payload.output)) {
+        if (payload.output.length < recordCount) {
+          errors.push(`Output array item count (${payload.output.length}) does not meet declared verifiedCount (${recordCount})`);
+          integrityScore = 0;
+        }
       }
 
       const hasValidIssues = payload.issues !== undefined && isValidIssueList(payload.issues);

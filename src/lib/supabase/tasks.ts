@@ -57,12 +57,18 @@ export async function hireAgentTask(taskData: Omit<TaskOrder, 'id' | 'createdAt'
     unitPriceUsd: taskData.unitPriceUsd || taskData.parameters?.unitPriceUsd,
     resultMetric: taskData.resultMetric || taskData.parameters?.resultMetric,
     slaThreshold: taskData.slaThreshold || taskData.parameters?.slaThreshold,
-    taskToken: generateSecureToken('tok_'),
+    taskToken: taskData.taskToken || generateSecureToken('tok_'),
     createdAt: new Date().toISOString()
   };
 
   if (supabase) {
     try {
+      // 优先从真实 JWT 鉴权会话获取已认证真实邮箱，杜绝匿名注入伪造
+      const { data: authData } = await supabase.auth.getUser().catch(() => ({ data: { user: null } }));
+      if (authData?.user?.email) {
+        newOrder.userEmail = authData.user.email;
+      }
+
       const { data, error } = await supabase
         .from('agent_tasks')
         .insert([newOrder])
@@ -73,6 +79,9 @@ export async function hireAgentTask(taskData: Omit<TaskOrder, 'id' | 'createdAt'
         orders.unshift(data as TaskOrder);
         saveLocalOrders(orders);
         return data as TaskOrder;
+      }
+      if (error) {
+        console.warn('Supabase insert error details:', error.message || error);
       }
     } catch (err) {
       console.warn('Supabase insert failed, fallback to local storage:', err);
@@ -93,10 +102,19 @@ export async function getHiredTaskOrders(): Promise<TaskOrder[]> {
   const localOrders = getLocalOrders();
   if (supabase) {
     try {
-      const { data, error } = await supabase
+      const localIds = localOrders.map(o => o.id).filter(Boolean);
+      let query = supabase
         .from('agent_tasks')
         .select('*')
         .order('createdAt', { ascending: false });
+
+      // 未登录匿名环境基于本地存证 ID 精确路由，避免跨租户数据混淆
+      const { data: authData } = await supabase.auth.getUser().catch(() => ({ data: { user: null } }));
+      if (!authData?.user && localIds.length > 0) {
+        query = query.in('id', localIds);
+      }
+
+      const { data, error } = await query;
       if (!error && data && data.length > 0) {
         const localMap = new Map(localOrders.map(o => [o.id, o]));
         const merged: TaskOrder[] = (data as TaskOrder[]).map(remote => {
@@ -108,6 +126,9 @@ export async function getHiredTaskOrders(): Promise<TaskOrder[]> {
         });
         saveLocalOrders(merged);
         return merged;
+      }
+      if (error) {
+        console.warn('Supabase fetch tasks error:', error.message || error);
       }
     } catch (err) {
       console.warn('Supabase fetch tasks failed, fallback to local storage:', err);

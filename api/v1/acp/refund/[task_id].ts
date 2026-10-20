@@ -63,7 +63,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const { data: taskRecord, error: fetchErr } = await supabase
       .from('agent_tasks')
-      .select('id, status, taskToken, budgetUsd, userEmail')
+      .select('id, status, taskToken, budgetUsd, userEmail, updatedAt')
       .eq('id', taskId)
       .single();
 
@@ -137,7 +137,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const now = new Date().toISOString();
-    const { data: updatedRows, error: updateErr } = await supabase
+    let updateQuery = supabase
       .from('agent_tasks')
       .update({
         status: 'refunded',
@@ -145,8 +145,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         updatedAt: now
       })
       .eq('id', taskId)
-      .in('status', ['disputed', 'failed', 'escrowed'])
-      .select('id, status');
+      .in('status', ['disputed', 'failed', 'escrowed']);
+
+    if (taskRecord.updatedAt) {
+      updateQuery = updateQuery.eq('updatedAt', taskRecord.updatedAt);
+    }
+
+    const { data: updatedRows, error: updateErr } = await updateQuery.select('id, status');
 
     if (updateErr) {
       return res.status(503).json({
