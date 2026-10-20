@@ -135,6 +135,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nextPayout = 'settled';
     }
 
+    const currentVersion = Number(taskRecord.version) || 1;
+    const nextVersion = currentVersion + 1;
     const now = new Date().toISOString();
     const { data: updatedRows, error: updateErr } = await supabase
       .from('agent_tasks')
@@ -143,11 +145,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         payoutStatus: nextPayout,
         disputeReason: disputeReason,
         arbitrationVerdict: verdict,
-        updatedAt: now
+        updatedAt: now,
+        version: nextVersion
       })
       .eq('id', taskId)
+      .eq('version', currentVersion)
       .in('status', ['delivered', 'completed'])
-      .select('id, status, disputeReason, arbitrationVerdict, updatedAt');
+      .select('id, status, disputeReason, arbitrationVerdict, updatedAt, version');
 
     if (updateErr) {
       return res.status(503).json({ success: false, error: { code: 'ACP_DB_UPDATE_ERROR', message: `Database update error: ${updateErr.message}`, retryable: true } });

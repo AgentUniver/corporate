@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS agent_tasks (
 );
 
 -- =========================================================================
--- Phase 1: Column Additions, Data Harmonization & Default Configurations
+-- Phase 1: Column Additions & Default Configurations
 -- =========================================================================
 DO $$
 BEGIN
@@ -77,27 +77,6 @@ BEGIN
     ALTER TABLE agent_tasks ALTER COLUMN status SET DEFAULT 'escrowed';
     ALTER TABLE agent_tasks ALTER COLUMN version SET DEFAULT 1;
     ALTER TABLE agent_tasks ALTER COLUMN "taskToken" SET DEFAULT ('tok_' || replace(gen_random_uuid()::text, '-', ''));
-
-    -- 3. Data Sanitization & Harmonization on Pre-existing Dirty Rows (Fail-safe)
-    UPDATE agent_tasks 
-    SET status = 'failed' 
-    WHERE status NOT IN ('pending', 'escrowed', 'processing', 'delivered', 'verified', 'disputed', 'refunded', 'failed', 'completed');
-
-    UPDATE agent_tasks 
-    SET "payoutStatus" = 'refunded' 
-    WHERE status = 'refunded' AND ("payoutStatus" IS NULL OR "payoutStatus" != 'refunded');
-
-    UPDATE agent_tasks 
-    SET "payoutStatus" = 'settled' 
-    WHERE status IN ('verified', 'completed') AND ("payoutStatus" IS NULL OR "payoutStatus" NOT IN ('settled', 'escrowed'));
-
-    UPDATE agent_tasks 
-    SET "payoutStatus" = 'pending' 
-    WHERE status IN ('pending', 'escrowed', 'processing', 'delivered') AND "payoutStatus" NOT IN ('pending', 'escrowed');
-
-    UPDATE agent_tasks 
-    SET "payoutStatus" = 'failed' 
-    WHERE status = 'failed' AND "payoutStatus" NOT IN ('refunded', 'failed');
 END $$;
 
 -- =========================================================================
@@ -105,7 +84,7 @@ END $$;
 -- =========================================================================
 DO $$
 BEGIN
-    -- 1. Status Check Constraint Rebuild
+    -- 1. Status Check Constraint Rebuild (Gracefully supports historic cancelled status without data loss, P0-B)
     ALTER TABLE agent_tasks DROP CONSTRAINT IF EXISTS "agent_tasks_status_check";
     ALTER TABLE agent_tasks DROP CONSTRAINT IF EXISTS agent_tasks_status_check;
     ALTER TABLE agent_tasks DROP CONSTRAINT IF EXISTS check_agent_tasks_status;
@@ -119,7 +98,8 @@ BEGIN
             'disputed',
             'refunded',
             'failed',
-            'completed'
+            'completed',
+            'cancelled'
         )
     ) NOT VALID;
 
@@ -132,44 +112,42 @@ BEGIN
         "payoutStatus" IS NULL OR "payoutStatus" IN ('pending', 'escrowed', 'settled', 'refunded', 'failed')
     ) NOT VALID;
 
-    -- 3. Exhaustive 54-Combination State Machine Ledger Matrix (C5 / P1-1)
+    -- 3. Exhaustive State Machine Ledger Consistency Check (P0-B / P1-1 / P1-3)
+    -- Enforces payoutStatus IS NOT NULL on terminal verified/completed/refunded, while allowing disputed settlements and cancelled tasks
     ALTER TABLE agent_tasks DROP CONSTRAINT IF EXISTS "agent_tasks_status_payout_consistency_check";
     ALTER TABLE agent_tasks ADD CONSTRAINT "agent_tasks_status_payout_consistency_check" CHECK (
         (status = 'pending' AND ("payoutStatus" IS NULL OR "payoutStatus" = 'pending'))
         OR (status = 'escrowed' AND ("payoutStatus" IS NULL OR "payoutStatus" IN ('pending', 'escrowed')))
         OR (status = 'processing' AND ("payoutStatus" IS NULL OR "payoutStatus" IN ('pending', 'escrowed')))
         OR (status = 'delivered' AND ("payoutStatus" IS NULL OR "payoutStatus" IN ('pending', 'escrowed')))
-        OR (status = 'disputed' AND ("payoutStatus" IS NULL OR "payoutStatus" IN ('pending', 'escrowed', 'failed')))
-        OR (status = 'verified' AND "payoutStatus" IN ('settled', 'escrowed'))
-        OR (status = 'completed' AND "payoutStatus" IN ('settled', 'escrowed'))
-        OR (status = 'refunded' AND "payoutStatus" = 'refunded')
+        OR (status = 'disputed' AND ("payoutStatus" IS NULL OR "payoutStatus" IN ('pending', 'escrowed', 'settled', 'refunded', 'failed')))
+        OR (status = 'verified' AND "payoutStatus" IS NOT NULL AND "payoutStatus" IN ('settled', 'escrowed'))
+        OR (status = 'completed' AND "payoutStatus" IS NOT NULL AND "payoutStatus" IN ('settled', 'escrowed'))
+        OR (status = 'refunded' AND "payoutStatus" IS NOT NULL AND "payoutStatus" = 'refunded')
         OR (status = 'failed' AND ("payoutStatus" IS NULL OR "payoutStatus" IN ('refunded', 'failed')))
+        OR (status = 'cancelled' AND ("payoutStatus" IS NULL OR "payoutStatus" IN ('refunded', 'failed', 'settled')))
+    ) NOT VALID;
+
+    -- 4. Financial Caps & Quantity Bounding Check (P0-C)
+    ALTER TABLE agent_tasks DROP CONSTRAINT IF EXISTS "agent_tasks_financial_limits_check";
+    ALTER TABLE agent_tasks ADD CONSTRAINT "agent_tasks_financial_limits_check" CHECK (
+        "budgetUsd" >= 0.05 AND "budgetUsd" <= 1000.00
+        AND (quantity IS NULL OR (quantity >= 1 AND quantity <= 1000))
+        AND ("unitPriceUsd" IS NULL OR ("unitPriceUsd" >= 0.01 AND "unitPriceUsd" <= 1000.00))
+        AND (quantity IS NULL OR "unitPriceUsd" IS NULL OR (quantity * "unitPriceUsd" <= 1000.00))
+        AND ("platformFeeUsd" >= 0.00 AND "platformFeeUsd" <= "budgetUsd")
+        AND ("priceCeilingUsd" IS NULL OR ("priceCeilingUsd" >= 0.05 AND "priceCeilingUsd" <= 1000.00))
+        AND ("estimatedComputeUsd" IS NULL OR ("estimatedComputeUsd" >= 0 AND "estimatedComputeUsd" <= 1000.00))
     ) NOT VALID;
 END $$;
 
 -- =========================================================================
--- Phase 3: Constraint Validation with Resilient Exception Isolation (N3)
+-- Phase 3: Constraint Validation (P0-B: No silent swallowing, completely convalidated)
 -- =========================================================================
-DO $$
-BEGIN
-    BEGIN
-        ALTER TABLE agent_tasks VALIDATE CONSTRAINT "agent_tasks_status_check";
-    EXCEPTION WHEN OTHERS THEN
-        RAISE WARNING 'Status constraint validation skipped on legacy rows: %', SQLERRM;
-    END;
-
-    BEGIN
-        ALTER TABLE agent_tasks VALIDATE CONSTRAINT "agent_tasks_payoutStatus_check";
-    EXCEPTION WHEN OTHERS THEN
-        RAISE WARNING 'PayoutStatus constraint validation skipped on legacy rows: %', SQLERRM;
-    END;
-
-    BEGIN
-        ALTER TABLE agent_tasks VALIDATE CONSTRAINT "agent_tasks_status_payout_consistency_check";
-    EXCEPTION WHEN OTHERS THEN
-        RAISE WARNING 'Ledger consistency matrix validation skipped on legacy rows: %', SQLERRM;
-    END;
-END $$;
+ALTER TABLE agent_tasks VALIDATE CONSTRAINT "agent_tasks_status_check";
+ALTER TABLE agent_tasks VALIDATE CONSTRAINT "agent_tasks_payoutStatus_check";
+ALTER TABLE agent_tasks VALIDATE CONSTRAINT "agent_tasks_status_payout_consistency_check";
+ALTER TABLE agent_tasks VALIDATE CONSTRAINT "agent_tasks_financial_limits_check";
 
 -- Indexes for high-frequency queries and joins
 CREATE INDEX IF NOT EXISTS idx_agent_tasks_status ON agent_tasks (status);
@@ -180,7 +158,26 @@ CREATE INDEX IF NOT EXISTS idx_agent_tasks_updated_at ON agent_tasks ("updatedAt
 CREATE INDEX IF NOT EXISTS idx_agent_tasks_version ON agent_tasks (version);
 
 -- =========================================================================
--- Phase 4: Row-Level Security (RLS) Configuration (N1 / C3 / C4 / P1-3)
+-- Phase 4: DB-Side Monotonic Version Enforcement Trigger (P1-2)
+-- =========================================================================
+CREATE OR REPLACE FUNCTION trg_agent_tasks_monotonic_version()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.version IS NULL OR NEW.version <= OLD.version THEN
+        RAISE EXCEPTION 'Monotonic version violation: NEW.version (%) must be strictly greater than OLD.version (%)', NEW.version, OLD.version;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_agent_tasks_version_fence ON agent_tasks;
+CREATE TRIGGER trg_agent_tasks_version_fence
+    BEFORE UPDATE ON agent_tasks
+    FOR EACH ROW
+    EXECUTE FUNCTION trg_agent_tasks_monotonic_version();
+
+-- =========================================================================
+-- Phase 5: Row-Level Security (RLS) Configuration (N1 / C3 / C4 / P0-C)
 -- =========================================================================
 ALTER TABLE agent_tasks ENABLE ROW LEVEL SECURITY;
 
@@ -217,7 +214,7 @@ CREATE POLICY "Token holders can view specific task"
         AND "taskToken" = (nullif(current_setting('request.headers', true), '')::json->>'x-task-token')
     );
 
--- 5. Restricted INSERT Policy: anon users cannot spoof emails or manipulate financial fields
+-- 5. Restricted INSERT Policy: anon users cannot spoof emails, bypass quantity caps, or manipulate financial fields (P0-C)
 DROP POLICY IF EXISTS "Clients can insert new orders" ON agent_tasks;
 CREATE POLICY "Clients can insert new orders"
     ON agent_tasks
@@ -230,6 +227,11 @@ CREATE POLICY "Clients can insert new orders"
         AND "budgetUsd" <= 1000.00
         AND "platformFeeUsd" >= 0.00
         AND "platformFeeUsd" <= "budgetUsd"
+        AND (quantity IS NULL OR (quantity >= 1 AND quantity <= 1000))
+        AND ("unitPriceUsd" IS NULL OR ("unitPriceUsd" >= 0.01 AND "unitPriceUsd" <= 1000.00))
+        AND (quantity IS NULL OR "unitPriceUsd" IS NULL OR (quantity * "unitPriceUsd" <= 1000.00))
+        AND ("priceCeilingUsd" IS NULL OR ("priceCeilingUsd" >= 0.05 AND "priceCeilingUsd" <= 1000.00))
+        AND ("estimatedComputeUsd" IS NULL OR ("estimatedComputeUsd" >= 0 AND "estimatedComputeUsd" <= 1000.00))
         AND (
             "taskToken" IS NULL
             OR ("taskToken" ~ '^tok_[a-zA-Z0-9]{16,64}$' AND length("taskToken") >= 20)

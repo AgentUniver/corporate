@@ -45,30 +45,52 @@ export interface SchemaValidationReport {
   slaConformant: boolean;
 }
 
-const CANONICAL_DELIVERABLE_KEYS = new Set([
+export const CANONICAL_DELIVERABLE_KEYS = new Set([
   'analysis', 'summary', 'text', 'corrected', 'score', 'code', 'data', 'result',
   'items', 'records', 'rows', 'metrics', 'findings', 'content', 'url', 'sha',
   'issues', 'radar', 'report', 'diff', 'benchmark', 'latency', 'solution',
-  'deliverable'
+  'deliverable', 'output', 'repo', 'dataDeliverySample'
 ]);
 
-const CANONICAL_ITEM_CONTENT_KEYS = new Set([
+export const CANONICAL_ITEM_CONTENT_KEYS = new Set([
   'title', 'description', 'message', 'text', 'content', 'value', 'suggestion',
   'recommendation', 'rule', 'code', 'data', 'summary', 'findings', 'score',
   'metric', 'output', 'solution'
 ]);
 
+export const TRIVIAL_PLACEHOLDERS = new Set([
+  'done', 'ok', 'x', 'test', 'temp', 'foo', 'bar', 'none', 'n/a', 'na',
+  'null', 'undefined', 'pass', 'success', 'true', 'false', '0', '1', '-1',
+  'finished', 'complete', 'completed', 'yes', 'no', 'd'
+]);
+
 /**
- * 递归深度检测是否包含错误标识 (Fail-closed)
+ * 递归全局深度检测是否包含错误标识 (遍历任意层级的对象与数组，P0-A)
  */
-export function hasErrorFlag(obj: any): boolean {
-  if (!obj || typeof obj !== 'object') return false;
-  if (obj.error || obj.err) return true;
-  const statusStr = String(obj.status || '').toUpperCase();
-  if (statusStr === 'ERROR' || statusStr === 'FAILED' || statusStr === 'FAILURE') return true;
-  if (obj.result && typeof obj.result === 'object' && hasErrorFlag(obj.result)) return true;
-  if (obj.output && typeof obj.output === 'object' && hasErrorFlag(obj.output)) return true;
+export function hasErrorFlag(obj: any, depth = 0): boolean {
+  if (depth > 10 || !obj) return false;
+  if (Array.isArray(obj)) {
+    return obj.some(item => hasErrorFlag(item, depth + 1));
+  }
+  if (typeof obj === 'object') {
+    if (obj.error === true || (typeof obj.error === 'string' && obj.error.trim().length > 0)) return true;
+    if (obj.err === true || (typeof obj.err === 'string' && obj.err.trim().length > 0)) return true;
+    const statusStr = String(obj.status || '').toUpperCase();
+    if (statusStr === 'ERROR' || statusStr === 'FAILED' || statusStr === 'FAILURE') return true;
+    return Object.values(obj).some(val => hasErrorFlag(val, depth + 1));
+  }
   return false;
+}
+
+/**
+ * 校验文本内容是否实质有效（非占位符且具有必要长度）
+ */
+export function isSubstantiveText(text: any, minLen = 5): boolean {
+  if (typeof text !== 'string') return false;
+  const trimmed = text.trim();
+  if (trimmed.length < minLen) return false;
+  if (TRIVIAL_PLACEHOLDERS.has(trimmed.toLowerCase())) return false;
+  return true;
 }
 
 /**
@@ -79,7 +101,7 @@ export function isNonEmptyValue(v: any, depth = 0): boolean {
   if (v === null || v === undefined) return false;
   if (typeof v === 'boolean') return false; // Raw boolean is not deliverable
   if (typeof v === 'number') return Number.isFinite(v) && !Number.isNaN(v) && v > 0;
-  if (typeof v === 'string') return v.trim().length > 0;
+  if (typeof v === 'string') return isSubstantiveText(v, 1);
   if (Array.isArray(v)) {
     if (v.length === 0) return false;
     return v.every(item => isNonEmptyValue(item, depth + 1));
@@ -96,10 +118,11 @@ function isValidIssueList(issues: any): boolean {
   if (!Array.isArray(issues) || issues.length === 0) return false;
   return issues.every(item => {
     if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+    if (hasErrorFlag(item)) return false;
     const keys = Object.keys(item);
     if (keys.length === 0) return false;
     const recognizedKeys = ['type', 'original', 'suggestion', 'reason', 'message', 'description', 'rule', 'line', 'file', 'severity'];
-    return keys.some(k => recognizedKeys.includes(k) && isNonEmptyValue(item[k], 1));
+    return keys.some(k => recognizedKeys.includes(k) && isSubstantiveText(String(item[k]), 1));
   });
 }
 
@@ -113,67 +136,123 @@ function isValidRadar(radar: any): boolean {
 }
 
 /**
- * 校验独立结构化元素是否包含规范字段与实质内容
+ * 校验结构化数据记录条目是否实质有效
  */
 function isValidStructuredItem(item: any): boolean {
   if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+  if (hasErrorFlag(item)) return false;
   const keys = Object.keys(item);
   if (keys.length === 0) return false;
 
-  // 杜绝仅含 id 等空壳定位字段，必须包含至少一个实质内容字段
-  const hasSubstantiveContent = keys.some(k => CANONICAL_ITEM_CONTENT_KEYS.has(k) && isNonEmptyValue(item[k], 1));
+  // 必须包含至少一个实质内容字段且内容非占位符
+  const hasSubstantiveContent = keys.some(k => {
+    if (!CANONICAL_ITEM_CONTENT_KEYS.has(k)) return false;
+    const val = item[k];
+    if (typeof val === 'string') return isSubstantiveText(val, 2);
+    if (typeof val === 'number') return Number.isFinite(val) && val > 0;
+    if (typeof val === 'object' && val !== null) return isNonEmptyValue(val, 1);
+    return false;
+  });
+
   return hasSubstantiveContent;
 }
 
 /**
- * 严格递归校验 Deliverable Payload 契约合规性
+ * 校验指标对象是否实质有效
  */
-function isValidDeliverablePayload(val: any, depth = 0): boolean {
+function isValidMetricsObject(metrics: any): boolean {
+  if (!metrics || typeof metrics !== 'object' || Array.isArray(metrics)) return false;
+  const entries = Object.entries(metrics);
+  if (entries.length === 0) return false;
+  return entries.some(([_, val]) => {
+    if (typeof val === 'number') return Number.isFinite(val) && val >= 0;
+    if (typeof val === 'string') return isSubstantiveText(val, 1);
+    if (typeof val === 'object' && val !== null) return isNonEmptyValue(val, 1);
+    return false;
+  });
+}
+
+/**
+ * 严格递归校验任意交付载荷实体有效性 (Fail-closed)
+ */
+export function isValidDeliverablePayload(val: any, depth = 0): boolean {
   if (depth > 6) return false;
-  if (!isNonEmptyValue(val, depth)) return false;
+  if (val === null || val === undefined) return false;
   if (hasErrorFlag(val)) return false;
 
-  if (typeof val === 'string') return val.trim().length >= 1;
-  // 单独的纯数字不能作为最终交付物（必须包装在 metrics 或 score 结构内）
-  if (typeof val === 'number') return depth > 0 && val > 0;
-  if (typeof val === 'boolean') return false;
-
-  if (Array.isArray(val)) {
-    if (val.length === 0) return false;
-    // 数组中不能包含裸数字/布尔值（如 [0], [false]），且所有元素必须为实质结构
-    return val.every(item => {
-      if (typeof item !== 'object' || item === null) return false;
-      return isValidStructuredItem(item);
-    });
+  // 1. 纯文本交付物：长度 >= 5 且非占位符
+  if (typeof val === 'string') {
+    return isSubstantiveText(val, 5);
   }
 
+  // 2. 纯数字/布尔值：不能单独作为顶层交付物
+  if (typeof val === 'number' || typeof val === 'boolean') {
+    return false;
+  }
+
+  // 3. 数组交付物：所有子元素必须为合格的结构化对象
+  if (Array.isArray(val)) {
+    if (val.length === 0) return false;
+    return val.every(item => isValidStructuredItem(item));
+  }
+
+  // 4. 对象交付物：深度校验全部顶层与嵌套字段
   if (typeof val === 'object') {
     const keys = Object.keys(val);
     if (keys.length === 0) return false;
 
-    // 若包含 radar 或 issues 特化结构，必须通过深度专用校验
-    if (val.radar !== undefined && !isValidRadar(val.radar)) return false;
-    if (val.issues !== undefined && !isValidIssueList(val.issues)) return false;
-
-    // 检查是否存在至少一个标准白名单契约字段
-    const hasCanonicalKey = keys.some(k => CANONICAL_DELIVERABLE_KEYS.has(k));
-    if (!hasCanonicalKey) {
+    // 必须包含白名单认可的规范契约字段
+    const canonicalPresent = keys.filter(k => CANONICAL_DELIVERABLE_KEYS.has(k));
+    if (canonicalPresent.length === 0) {
       return false;
     }
 
-    // 仅具有 id 而无任何实质内容的伪装对象不予放行（如 { result: { id: "x" } }）
-    const substantiveKeys = keys.filter(k => k !== 'id' && k !== 'status' && k !== 'token' && k !== 'verifiedCount');
+    // 杜绝仅含 id/status/token 等伪装壳体
+    const substantiveKeys = canonicalPresent.filter(k => k !== 'id' && k !== 'status' && k !== 'token' && k !== 'verifiedCount');
     if (substantiveKeys.length === 0) {
       return false;
     }
 
-    // 递归校验每个子字段内容
+    // 遍历所有白名单字段进行专门契约校验
     return substantiveKeys.some(k => {
       const v = val[k];
       if (v === null || v === undefined) return false;
-      if (k === 'radar') return isValidRadar(v);
-      if (k === 'issues') return isValidIssueList(v);
-      return isValidDeliverablePayload(v, depth + 1);
+      if (hasErrorFlag(v)) return false;
+
+      // 文本类产物
+      if (['text', 'content', 'summary', 'analysis', 'code', 'corrected', 'solution', 'dataDeliverySample'].includes(k)) {
+        return isSubstantiveText(v, 5);
+      }
+      // URL 类产物
+      if (k === 'url') {
+        return typeof v === 'string' && (v.startsWith('http://') || v.startsWith('https://'));
+      }
+      // Radar 类产物
+      if (k === 'radar') {
+        return isValidRadar(v);
+      }
+      // Issues 类产物
+      if (k === 'issues') {
+        return isValidIssueList(v);
+      }
+      // 结构化条目数组（findings, records, items, rows）
+      if (['findings', 'records', 'items', 'rows'].includes(k)) {
+        if (!Array.isArray(v) || v.length === 0) return false;
+        return v.every(item => isValidStructuredItem(item));
+      }
+      // 指标类产物（metrics, benchmark）
+      if (['metrics', 'benchmark'].includes(k)) {
+        return isValidMetricsObject(v);
+      }
+      // 嵌套载荷（output, result, data, report, deliverable）
+      if (['output', 'result', 'data', 'report', 'deliverable'].includes(k)) {
+        return isValidDeliverablePayload(v, depth + 1);
+      }
+      // 数值评分
+      if (k === 'score') {
+        return typeof v === 'number' && Number.isFinite(v) && v >= 0;
+      }
+      return false;
     });
   }
 
@@ -182,6 +261,7 @@ function isValidDeliverablePayload(val: any, depth = 0): boolean {
 
 /**
  * 交付数据包 Schema 字段级契约检查器 (TASK-503)
+ * 全面支持 9 类顶层合法契约形状与包装形式 (P0-D)
  */
 export async function validateDeliverableSchema(
   payload: any,
@@ -205,7 +285,7 @@ export async function validateDeliverableSchema(
 
   const checksum = await computeSha256(payload);
 
-  // 1. 全局深度错误标识拦截 (N2)
+  // 1. 全局深度递归错误标识拦截 (P0-A)
   if (hasErrorFlag(payload)) {
     errors.push('Payload contains error flag or failed status indicator');
     return {
@@ -218,14 +298,16 @@ export async function validateDeliverableSchema(
     };
   }
 
+  // 2. 顶层字符串格式
   if (typeof payload === 'string') {
-    if (!payload.trim()) {
-      errors.push('String payload is empty');
+    if (!isSubstantiveText(payload, 5)) {
+      errors.push('String payload is empty or trivial placeholder');
       integrityScore = 0;
     } else {
       recordCount = 1;
     }
   } else if (Array.isArray(payload)) {
+    // 3. 顶层数组格式
     recordCount = payload.length;
     if (recordCount === 0) {
       errors.push('Array payload contains 0 records');
@@ -243,11 +325,13 @@ export async function validateDeliverableSchema(
       }
     }
   } else if (typeof payload === 'object') {
+    // 4. 顶层对象格式：覆盖 9 类顶层规范形状及 output/result/data 包装 (P0-D)
     const keys = Object.keys(payload);
     if (keys.length === 0) {
       errors.push('Object payload is completely empty ({})');
       integrityScore = 0;
     } else {
+      // 记录数解析
       if (payload.verifiedCount !== undefined) {
         if (typeof payload.verifiedCount !== 'number' || !Number.isInteger(payload.verifiedCount) || payload.verifiedCount <= 0) {
           errors.push('verifiedCount must be a positive integer');
@@ -257,6 +341,14 @@ export async function validateDeliverableSchema(
         }
       } else if (typeof payload.quantity === 'number' && Number.isInteger(payload.quantity) && payload.quantity > 0) {
         recordCount = payload.quantity;
+      } else if (Array.isArray(payload.records)) {
+        recordCount = payload.records.length;
+      } else if (Array.isArray(payload.items)) {
+        recordCount = payload.items.length;
+      } else if (Array.isArray(payload.findings)) {
+        recordCount = payload.findings.length;
+      } else if (Array.isArray(payload.output)) {
+        recordCount = payload.output.length;
       } else if (requiredQuantity && requiredQuantity > 1) {
         recordCount = 0;
         errors.push(`Missing verifiedCount in payload for result_based order (required ${requiredQuantity})`);
@@ -265,26 +357,19 @@ export async function validateDeliverableSchema(
         recordCount = 1;
       }
 
-      // Check array output length against declared verifiedCount
-      if (payload.output !== undefined && Array.isArray(payload.output)) {
-        if (payload.output.length < recordCount) {
-          errors.push(`Output array item count (${payload.output.length}) does not meet declared verifiedCount (${recordCount})`);
+      // 若指定了 verifiedCount，检查对应数组容量是否满足
+      const targetArray = Array.isArray(payload.output) ? payload.output : (Array.isArray(payload.records) ? payload.records : (Array.isArray(payload.items) ? payload.items : null));
+      if (targetArray && payload.verifiedCount !== undefined) {
+        if (targetArray.length < payload.verifiedCount) {
+          errors.push(`Array item count (${targetArray.length}) does not meet declared verifiedCount (${payload.verifiedCount})`);
           integrityScore = 0;
         }
       }
 
-      const hasValidIssues = payload.issues !== undefined && isValidIssueList(payload.issues);
-      const hasValidRadar = typeof payload.repo === 'string' && payload.repo.trim().length > 0 && isValidRadar(payload.radar);
-      const hasValidCorrected = typeof payload.corrected === 'string' && payload.corrected.trim().length > 0;
-      const hasValidSample = typeof payload.dataDeliverySample === 'string' && payload.dataDeliverySample.trim().length > 0;
-      const hasValidOutput = payload.output !== undefined && isValidDeliverablePayload(payload.output);
-      const hasValidResult = payload.result !== undefined && isValidDeliverablePayload(payload.result);
-      const hasValidData = payload.data !== undefined && isValidDeliverablePayload(payload.data);
-
-      const hasContractField = hasValidIssues || hasValidRadar || hasValidCorrected || hasValidSample || hasValidOutput || hasValidResult || hasValidData;
-
-      if (!hasContractField) {
-        errors.push('Payload schema lacks non-empty deliverable contract fields (valid issues with fields, valid repo/radar, corrected text, or recognized output/result/data)');
+      // 统一复用契约门禁校验器，确保白名单全量识别
+      const isValid = isValidDeliverablePayload(payload, 0);
+      if (!isValid) {
+        errors.push('Payload schema lacks substantive deliverable contract fields matching CANONICAL_DELIVERABLE_KEYS');
         integrityScore = 0;
       }
     }
@@ -318,7 +403,6 @@ export interface DisputeArbitrationVerdict {
 
 /**
  * 自动化争议裁决分析引擎 (TASK-504)
- * 基于 SLA 指标、交付物数字指纹校验报告及时间戳窗口进行机器裁判，秒级定谳
  */
 export async function evaluateDisputeArbitration(
   order: TaskOrder,
@@ -345,7 +429,7 @@ export async function evaluateDisputeArbitration(
     };
   }
 
-  // 2. 交付物完全合规且达到 SLA 阈值（得分 >= 90 且 0 错误），买家主观撤单予以驳回
+  // 2. 交付物完全合规且达到 SLA 阈值（得分 >= 90 且 0 错误），买家主观撤单予以驳回并结算
   if (report.slaConformant && report.integrityScore >= 90 && report.errors.length === 0) {
     return {
       ruling: 'settle_developer',

@@ -538,6 +538,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   let targetQuantity: number | undefined = undefined;
   let targetSla: string | undefined = undefined;
   let lockTimestamp = '';
+  let lockedVersion = 0;
 
   // 5. Pre-flight & Real CAS Lock Check (P0-5 Hardened)
   if (task_id) {
@@ -551,7 +552,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       const { data: existingTask, error: checkErr } = await supabase
         .from('agent_tasks')
-        .select('id, status, resultPayload, deliverableFingerprint, deliveredAt, latencyMs, agent_slug, agentId, quantity, slaThreshold, updatedAt')
+        .select('id, status, resultPayload, deliverableFingerprint, deliveredAt, latencyMs, agent_slug, agentId, quantity, slaThreshold, updatedAt, version')
         .eq('id', task_id)
         .single();
 
@@ -594,36 +595,41 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
       }
 
-      // Atomic CAS Lock with 5-minute lease expiration and fencing token
+      // Atomic CAS Lock with 5-minute lease expiration and monotonic version fencing
       const nowMs = Date.now();
       const updatedMs = existingTask.updatedAt ? new Date(existingTask.updatedAt).getTime() : 0;
       const isLeaseExpired = existingTask.status === 'processing' && (nowMs - updatedMs > 5 * 60 * 1000);
+      const currentVersion = Number(existingTask.version) || 1;
+      lockedVersion = currentVersion + 1;
 
       lockTimestamp = new Date().toISOString();
       let lockQuery: any;
       if (isLeaseExpired) {
-        // Reclaim expired lease with optimistic lock matching existing updatedAt
+        // Reclaim expired lease with optimistic lock matching existing version
         lockQuery = supabase
           .from('agent_tasks')
           .update({
             status: 'processing',
-            updatedAt: lockTimestamp
+            updatedAt: lockTimestamp,
+            version: lockedVersion
           })
           .eq('id', task_id)
           .eq('status', 'processing')
-          .eq('updatedAt', existingTask.updatedAt)
-          .select('id');
+          .eq('version', currentVersion)
+          .select('id, version');
       } else {
         // Standard CAS lock on pending or escrowed task
         lockQuery = supabase
           .from('agent_tasks')
           .update({
             status: 'processing',
-            updatedAt: lockTimestamp
+            updatedAt: lockTimestamp,
+            version: lockedVersion
           })
           .eq('id', task_id)
           .in('status', ['pending', 'escrowed'])
-          .select('id');
+          .eq('version', currentVersion)
+          .select('id, version');
       }
 
       const { data: lockedRows, error: lockErr } = await lockQuery;
@@ -673,6 +679,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // 7. Update ledger in Supabase if task_id provided (P0-1: status = 'delivered')
     if (task_id && supabase) {
+      const nextVersion = lockedVersion > 0 ? lockedVersion + 1 : 2;
       const { data: updatedRows, error: updateError } = await supabase
         .from('agent_tasks')
         .update({
@@ -681,12 +688,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           deliverableFingerprint: deliverableFingerprint,
           deliveredAt: deliveredAt,
           latencyMs: latencyMs,
-          updatedAt: deliveredAt
+          updatedAt: deliveredAt,
+          version: nextVersion
         })
         .eq('id', task_id)
         .eq('status', 'processing')
-        .eq('updatedAt', lockTimestamp)
-        .select('id');
+        .eq('version', lockedVersion)
+        .select('id, version');
 
       if (updateError || !updatedRows || updatedRows.length === 0) {
         console.error('[ACP Ledger] Failed to update task ledger to delivered:', updateError);
@@ -728,18 +736,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // 429 and ACP_LEDGER_ERROR revert status to 'escrowed' only if matching this worker's fencing token
-    if (task_id && supabase && lockTimestamp) {
+    if (task_id && supabase && lockedVersion > 0) {
       try {
+        const revertVersion = lockedVersion + 1;
         if (statusCode === 429 || err?.code === 'ACP_LEDGER_ERROR') {
           await supabase.from('agent_tasks').update({
             status: 'escrowed',
-            updatedAt: new Date().toISOString()
-          }).eq('id', task_id).eq('status', 'processing').eq('updatedAt', lockTimestamp);
+            updatedAt: new Date().toISOString(),
+            version: revertVersion
+          }).eq('id', task_id).eq('status', 'processing').eq('version', lockedVersion);
         } else if (statusCode >= 400 && statusCode < 500 && statusCode !== 409) {
           await supabase.from('agent_tasks').update({
             status: 'failed',
-            updatedAt: new Date().toISOString()
-          }).eq('id', task_id).eq('status', 'processing').eq('updatedAt', lockTimestamp);
+            updatedAt: new Date().toISOString(),
+            version: revertVersion
+          }).eq('id', task_id).eq('status', 'processing').eq('version', lockedVersion);
         }
       } catch (dbErr) {
         console.warn('Supabase task failure record update error:', dbErr);
