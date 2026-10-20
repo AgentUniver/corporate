@@ -58,27 +58,37 @@ export async function hireAgentTask(taskData: Omit<TaskOrder, 'id' | 'createdAt'
     resultMetric: taskData.resultMetric || taskData.parameters?.resultMetric,
     slaThreshold: taskData.slaThreshold || taskData.parameters?.slaThreshold,
     taskToken: taskData.taskToken || generateSecureToken('tok_'),
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    // 初始创建严格剥离敏感财务与交付产物字段，满足 RLS INSERT 白名单校验
+    actualCostUsd: undefined,
+    payoutAddress: undefined,
+    payoutTxHash: undefined,
+    deliverableFingerprint: undefined,
+    arbitrationVerdict: undefined,
+    resultPayload: undefined
   };
 
   if (supabase) {
     try {
-      // 优先从真实 JWT 鉴权会话获取已认证真实邮箱，杜绝匿名注入伪造
+      // 优先从真实 JWT 鉴权会话获取已认证真实邮箱；未登录且有钱包则绑定规范 web3 邮箱，否则为空（杜绝伪造）
       const { data: authData } = await supabase.auth.getUser().catch(() => ({ data: { user: null } }));
       if (authData?.user?.email) {
         newOrder.userEmail = authData.user.email;
+      } else if (newOrder.parameters?.walletAddress) {
+        newOrder.userEmail = `${String(newOrder.parameters.walletAddress).toLowerCase()}@web3.agentuniver.com`;
+      } else {
+        newOrder.userEmail = undefined;
       }
 
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('agent_tasks')
-        .insert([newOrder])
-        .select()
-        .single();
-      if (!error && data) {
+        .insert([newOrder]);
+
+      if (!error) {
         const orders = getLocalOrders();
-        orders.unshift(data as TaskOrder);
+        orders.unshift(newOrder);
         saveLocalOrders(orders);
-        return data as TaskOrder;
+        return newOrder;
       }
       if (error) {
         console.warn('Supabase insert error details:', error.message || error);
@@ -102,33 +112,26 @@ export async function getHiredTaskOrders(): Promise<TaskOrder[]> {
   const localOrders = getLocalOrders();
   if (supabase) {
     try {
-      const localIds = localOrders.map(o => o.id).filter(Boolean);
-      let query = supabase
-        .from('agent_tasks')
-        .select('*')
-        .order('createdAt', { ascending: false });
-
-      // 未登录匿名环境基于本地存证 ID 精确路由，避免跨租户数据混淆
+      // 仅在真实登录会话下向 Supabase 请求云端同步工单（基于 auth.jwt email 过滤）
       const { data: authData } = await supabase.auth.getUser().catch(() => ({ data: { user: null } }));
-      if (!authData?.user && localIds.length > 0) {
-        query = query.in('id', localIds);
-      }
+      if (authData?.user) {
+        const { data, error } = await supabase
+          .from('agent_tasks')
+          .select('*')
+          .order('createdAt', { ascending: false });
 
-      const { data, error } = await query;
-      if (!error && data && data.length > 0) {
-        const localMap = new Map(localOrders.map(o => [o.id, o]));
-        const merged: TaskOrder[] = (data as TaskOrder[]).map(remote => {
-          const local = localMap.get(remote.id);
-          return {
-            ...remote,
-            taskToken: remote.taskToken || local?.taskToken
-          };
-        });
-        saveLocalOrders(merged);
-        return merged;
-      }
-      if (error) {
-        console.warn('Supabase fetch tasks error:', error.message || error);
+        if (!error && data && data.length > 0) {
+          const localMap = new Map(localOrders.map(o => [o.id, o]));
+          const merged: TaskOrder[] = (data as TaskOrder[]).map(remote => {
+            const local = localMap.get(remote.id);
+            return {
+              ...remote,
+              taskToken: remote.taskToken || local?.taskToken
+            };
+          });
+          saveLocalOrders(merged);
+          return merged;
+        }
       }
     } catch (err) {
       console.warn('Supabase fetch tasks failed, fallback to local storage:', err);

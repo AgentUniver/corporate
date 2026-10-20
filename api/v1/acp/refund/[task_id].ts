@@ -63,7 +63,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const { data: taskRecord, error: fetchErr } = await supabase
       .from('agent_tasks')
-      .select('id, status, taskToken, budgetUsd, userEmail, updatedAt')
+      .select('id, status, taskToken, budgetUsd, userEmail, version')
       .eq('id', taskId)
       .single();
 
@@ -136,22 +136,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
+    const currentVersion = Number(taskRecord.version);
+    if (!Number.isInteger(currentVersion) || currentVersion < 1) {
+      return res.status(500).json({
+        success: false,
+        error: { code: 'ACP_INVALID_LEDGER_VERSION', message: 'Task record lacks valid monotonic version' }
+      });
+    }
+
     const now = new Date().toISOString();
-    let updateQuery = supabase
+    const nextVersion = currentVersion + 1;
+    const { data: updatedRows, error: updateErr } = await supabase
       .from('agent_tasks')
       .update({
         status: 'refunded',
         payoutStatus: 'refunded',
-        updatedAt: now
+        updatedAt: now,
+        version: nextVersion
       })
       .eq('id', taskId)
-      .in('status', ['disputed', 'failed', 'escrowed']);
-
-    if (taskRecord.updatedAt) {
-      updateQuery = updateQuery.eq('updatedAt', taskRecord.updatedAt);
-    }
-
-    const { data: updatedRows, error: updateErr } = await updateQuery.select('id, status');
+      .eq('version', currentVersion)
+      .in('status', ['disputed', 'failed', 'escrowed'])
+      .select('id, status, version');
 
     if (updateErr) {
       return res.status(503).json({

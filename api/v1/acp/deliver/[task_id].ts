@@ -75,7 +75,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const { data: taskCheck, error: checkErr } = await supabase
       .from('agent_tasks')
-      .select('id, taskToken, quantity, slaThreshold, status, resultPayload, deliverableFingerprint, agent_slug, agentId, updatedAt')
+      .select('id, taskToken, quantity, slaThreshold, status, resultPayload, deliverableFingerprint, agent_slug, agentId, updatedAt, version')
       .eq('id', taskId)
       .single();
 
@@ -137,6 +137,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 
+  const currentVersion = Number(existingTaskRecord.version);
+  if (!Number.isInteger(currentVersion) || currentVersion < 1) {
+    return res.status(500).json({
+      success: false,
+      error: { code: 'ACP_INVALID_LEDGER_VERSION', message: 'Task record lacks valid monotonic version' }
+    });
+  }
+
   const deliveredAt = new Date().toISOString();
 
   // Validate deliverable schema and generate SHA-256 fingerprint (P0-2 Gate)
@@ -148,7 +156,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     verifiedAt: deliveredAt
   };
 
-  if (!validation.valid || validation.integrityScore < 60) {
+  if (!validation.valid || validation.integrityScore < 80 || validation.errors.length > 0) {
     return res.status(422).json({
       success: false,
       error: { code: 'ACP_DELIVERABLE_INVALID', message: `Output failed schema validation: ${validation.errors.join('; ')}` },
@@ -157,7 +165,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    let updateQuery = supabase
+    const nextVersion = currentVersion + 1;
+    const { data, error } = await supabase
       .from('agent_tasks')
       .update({
         status: 'delivered',
@@ -165,16 +174,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         deliverableFingerprint: deliverableFingerprint,
         deliveredAt: deliveredAt,
         updatedAt: deliveredAt,
+        version: nextVersion,
         ...(agent_slug && !existingTaskRecord.agent_slug && !existingTaskRecord.agentId ? { agent_slug, agentId: agent_slug } : {})
       })
       .eq('id', taskId)
-      .in('status', ['pending', 'escrowed', 'processing']);
-
-    if (existingTaskRecord.updatedAt) {
-      updateQuery = updateQuery.eq('updatedAt', existingTaskRecord.updatedAt);
-    }
-
-    const { data, error } = await updateQuery.select('id, status, deliveredAt, deliverableFingerprint');
+      .eq('version', currentVersion)
+      .in('status', ['pending', 'escrowed', 'processing'])
+      .select('id, status, deliveredAt, deliverableFingerprint, version');
 
     if (error) {
       return res.status(500).json({

@@ -45,14 +45,40 @@ export interface SchemaValidationReport {
   slaConformant: boolean;
 }
 
+const CANONICAL_DELIVERABLE_KEYS = new Set([
+  'analysis', 'summary', 'text', 'corrected', 'score', 'code', 'data', 'result',
+  'items', 'records', 'rows', 'metrics', 'findings', 'content', 'url', 'sha',
+  'issues', 'radar', 'report', 'diff', 'benchmark', 'latency', 'solution',
+  'deliverable'
+]);
+
+const CANONICAL_ITEM_CONTENT_KEYS = new Set([
+  'title', 'description', 'message', 'text', 'content', 'value', 'suggestion',
+  'recommendation', 'rule', 'code', 'data', 'summary', 'findings', 'score',
+  'metric', 'output', 'solution'
+]);
+
 /**
- * 递归判断任意值是否为有实质内容的非空契约项 (Fail-closed)
+ * 递归深度检测是否包含错误标识 (Fail-closed)
+ */
+export function hasErrorFlag(obj: any): boolean {
+  if (!obj || typeof obj !== 'object') return false;
+  if (obj.error || obj.err) return true;
+  const statusStr = String(obj.status || '').toUpperCase();
+  if (statusStr === 'ERROR' || statusStr === 'FAILED' || statusStr === 'FAILURE') return true;
+  if (obj.result && typeof obj.result === 'object' && hasErrorFlag(obj.result)) return true;
+  if (obj.output && typeof obj.output === 'object' && hasErrorFlag(obj.output)) return true;
+  return false;
+}
+
+/**
+ * 校验值是否为有实质内容的非空契约项 (Fail-closed)
  */
 export function isNonEmptyValue(v: any, depth = 0): boolean {
   if (depth > 6) return false;
   if (v === null || v === undefined) return false;
-  if (typeof v === 'boolean') return v === true; // Strict: boolean false is defective/failed
-  if (typeof v === 'number') return Number.isFinite(v) && !Number.isNaN(v);
+  if (typeof v === 'boolean') return false; // Raw boolean is not deliverable
+  if (typeof v === 'number') return Number.isFinite(v) && !Number.isNaN(v) && v > 0;
   if (typeof v === 'string') return v.trim().length > 0;
   if (Array.isArray(v)) {
     if (v.length === 0) return false;
@@ -87,43 +113,68 @@ function isValidRadar(radar: any): boolean {
 }
 
 /**
- * 递归校验 Deliverable Payload 深度契约有效性
+ * 校验独立结构化元素是否包含规范字段与实质内容
+ */
+function isValidStructuredItem(item: any): boolean {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+  const keys = Object.keys(item);
+  if (keys.length === 0) return false;
+
+  // 杜绝仅含 id 等空壳定位字段，必须包含至少一个实质内容字段
+  const hasSubstantiveContent = keys.some(k => CANONICAL_ITEM_CONTENT_KEYS.has(k) && isNonEmptyValue(item[k], 1));
+  return hasSubstantiveContent;
+}
+
+/**
+ * 严格递归校验 Deliverable Payload 契约合规性
  */
 function isValidDeliverablePayload(val: any, depth = 0): boolean {
   if (depth > 6) return false;
   if (!isNonEmptyValue(val, depth)) return false;
+  if (hasErrorFlag(val)) return false;
 
-  if (typeof val === 'string') return val.trim().length > 0;
-  if (typeof val === 'number') return Number.isFinite(val);
-  if (typeof val === 'boolean') return val === true;
+  if (typeof val === 'string') return val.trim().length >= 1;
+  // 单独的纯数字不能作为最终交付物（必须包装在 metrics 或 score 结构内）
+  if (typeof val === 'number') return depth > 0 && val > 0;
+  if (typeof val === 'boolean') return false;
 
   if (Array.isArray(val)) {
-    return val.length > 0 && val.every(item => isValidDeliverablePayload(item, depth + 1));
+    if (val.length === 0) return false;
+    // 数组中不能包含裸数字/布尔值（如 [0], [false]），且所有元素必须为实质结构
+    return val.every(item => {
+      if (typeof item !== 'object' || item === null) return false;
+      return isValidStructuredItem(item);
+    });
   }
 
   if (typeof val === 'object') {
     const keys = Object.keys(val);
     if (keys.length === 0) return false;
 
-    // 若包含 radar 或 issues 特化结构，必须深度有效
+    // 若包含 radar 或 issues 特化结构，必须通过深度专用校验
     if (val.radar !== undefined && !isValidRadar(val.radar)) return false;
     if (val.issues !== undefined && !isValidIssueList(val.issues)) return false;
 
-    // 针对数组内部或子对象（depth > 0），只要包含有效内容键值对即为合法数据实体
-    if (depth > 0) {
-      return keys.some(k => isNonEmptyValue(val[k], depth + 1));
+    // 检查是否存在至少一个标准白名单契约字段
+    const hasCanonicalKey = keys.some(k => CANONICAL_DELIVERABLE_KEYS.has(k));
+    if (!hasCanonicalKey) {
+      return false;
     }
 
-    const recognizedKeys = [
-      'analysis', 'summary', 'text', 'corrected', 'score', 'code', 'data', 'result',
-      'items', 'records', 'rows', 'metrics', 'findings', 'content', 'url', 'sha',
-      'issues', 'radar', 'status', 'token', 'verifiedCount', 'output', 'report',
-      'diff', 'benchmark', 'latency', 'model', 'answer', 'solution', 'id', 'title',
-      'name', 'description', 'message', 'severity', 'type'
-    ];
+    // 仅具有 id 而无任何实质内容的伪装对象不予放行（如 { result: { id: "x" } }）
+    const substantiveKeys = keys.filter(k => k !== 'id' && k !== 'status' && k !== 'token' && k !== 'verifiedCount');
+    if (substantiveKeys.length === 0) {
+      return false;
+    }
 
-    const hasRecognized = keys.some(k => recognizedKeys.includes(k) && isValidDeliverablePayload(val[k], depth + 1));
-    return hasRecognized;
+    // 递归校验每个子字段内容
+    return substantiveKeys.some(k => {
+      const v = val[k];
+      if (v === null || v === undefined) return false;
+      if (k === 'radar') return isValidRadar(v);
+      if (k === 'issues') return isValidIssueList(v);
+      return isValidDeliverablePayload(v, depth + 1);
+    });
   }
 
   return false;
@@ -154,6 +205,19 @@ export async function validateDeliverableSchema(
 
   const checksum = await computeSha256(payload);
 
+  // 1. 全局深度错误标识拦截 (N2)
+  if (hasErrorFlag(payload)) {
+    errors.push('Payload contains error flag or failed status indicator');
+    return {
+      valid: false,
+      sha256Checksum: checksum,
+      verifiedCount: 0,
+      integrityScore: 0,
+      errors,
+      slaConformant: false
+    };
+  }
+
   if (typeof payload === 'string') {
     if (!payload.trim()) {
       errors.push('String payload is empty');
@@ -167,25 +231,21 @@ export async function validateDeliverableSchema(
       errors.push('Array payload contains 0 records');
       integrityScore = 0;
     } else {
-      let emptyFieldCount = 0;
+      let defectiveCount = 0;
       payload.forEach((item) => {
-        if (!isNonEmptyValue(item)) {
-          emptyFieldCount++;
+        if (!isValidStructuredItem(item)) {
+          defectiveCount++;
         }
       });
-      if (emptyFieldCount > 0) {
-        const defectRate = emptyFieldCount / recordCount;
-        integrityScore = Math.max(0, Math.round((1 - defectRate) * 100));
-        errors.push(`Detected ${emptyFieldCount} defective/empty items among ${recordCount} records`);
+      if (defectiveCount > 0) {
+        errors.push(`Detected ${defectiveCount} invalid/empty items among ${recordCount} records`);
+        integrityScore = 0;
       }
     }
   } else if (typeof payload === 'object') {
     const keys = Object.keys(payload);
     if (keys.length === 0) {
       errors.push('Object payload is completely empty ({})');
-      integrityScore = 0;
-    } else if (payload.status === 'ERROR' || payload.error) {
-      errors.push(`Payload error flag: ${payload.error || 'ERROR status'}`);
       integrityScore = 0;
     } else {
       if (payload.verifiedCount !== undefined) {
@@ -235,8 +295,8 @@ export async function validateDeliverableSchema(
     integrityScore = Math.round(integrityScore * (recordCount / requiredQuantity));
   }
 
-  const valid = integrityScore >= 60 && errors.length === 0;
-  const slaConformant = integrityScore >= 80 && errors.length === 0;
+  const valid = integrityScore >= 80 && errors.length === 0;
+  const slaConformant = integrityScore >= 90 && errors.length === 0;
 
   return {
     valid,
@@ -274,29 +334,29 @@ export async function evaluateDisputeArbitration(
     order.slaThreshold
   );
 
-  // 1. 若履约交付物不存在或校验不合格
-  if (!order.resultPayload || !report.valid || report.integrityScore < 50) {
+  // 1. 若履约交付物不存在、校验未通过或存在任何契约缺陷，一律全额退款 (Fail-closed)
+  if (!order.resultPayload || !report.valid || report.errors.length > 0 || report.integrityScore < 80) {
     return {
       ruling: 'refund_client',
-      rationale: `Automated inspection failed: Deliverable payload integrity score (${report.integrityScore}/100) fell below the minimal SLA viability threshold. Contract defect confirmed.`,
-      confidence: 0.98,
+      rationale: `Automated inspection failed: Deliverable payload integrity score (${report.integrityScore}/100) fell below the minimal SLA viability threshold. Contract defect confirmed: ${report.errors.join('; ')}`,
+      confidence: 0.99,
       evidenceHash,
       arbitratedAt
     };
   }
 
-  // 2. 交付物完全合规且达到 SLA 阈值，但买家主观撤单
-  if (report.slaConformant && report.integrityScore >= 85) {
+  // 2. 交付物完全合规且达到 SLA 阈值（得分 >= 90 且 0 错误），买家主观撤单予以驳回
+  if (report.slaConformant && report.integrityScore >= 90 && report.errors.length === 0) {
     return {
       ruling: 'settle_developer',
       rationale: `Deliverable cryptographic fingerprint (${report.sha256Checksum.slice(0, 16)}...) verified against SLA requirements. Zero data schema defects found. Dispute rejected by SLA protocol.`,
-      confidence: 0.94,
+      confidence: 0.95,
       evidenceHash,
       arbitratedAt
     };
   }
 
-  // 3. 部分缺损或争议在边界区间 (50% <= score < 85%)
+  // 3. 部分边界区间 (80% <= score < 90%)
   return {
     ruling: 'split',
     rationale: `Deliverable passed base verification with integrity score ${report.integrityScore}/100, but detected non-fatal inconsistencies with buyer prompt. Mediated proportional settlement.`,
