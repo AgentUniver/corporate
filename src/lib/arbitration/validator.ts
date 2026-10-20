@@ -344,6 +344,17 @@ export function isValidDeliverablePayload(val: any, depth = 0): boolean {
       return false;
     }
 
+    // 计量门禁防护 (P0-1): 任何声明 verifiedCount > 1 或 quantity > 1 的交付必须附带满足容量的集合
+    const declaredVolume = (typeof val.verifiedCount === 'number' && val.verifiedCount > 1)
+      ? val.verifiedCount
+      : ((typeof val.quantity === 'number' && val.quantity > 1) ? val.quantity : null);
+    if (declaredVolume !== null) {
+      const col = extractCollectionArray(val);
+      if (!col || col.length < declaredVolume) {
+        return false;
+      }
+    }
+
     // 若对象内包含条目集合，则集合内的每个元素必须全部合法，禁止局部非法（P0-1 消除 some 旁路）
     const collectionKeys = ['records', 'items', 'findings', 'rows'];
     for (const ck of collectionKeys) {
@@ -543,7 +554,21 @@ export async function validateDeliverableSchema(
       } else if (foundCollection) {
         recordCount = foundCollection.length;
       } else if (typeof payload.quantity === 'number' && Number.isInteger(payload.quantity) && payload.quantity > 0) {
-        recordCount = payload.quantity;
+        if (payload.quantity > 1) {
+          if (!foundCollection) {
+            errors.push(`Multi-item deliverable declared quantity=${payload.quantity} but lacks collection array`);
+            integrityScore = 0;
+            recordCount = 0;
+          } else if (foundCollection.length < payload.quantity) {
+            errors.push(`Collection array length (${foundCollection.length}) is below declared quantity (${payload.quantity})`);
+            integrityScore = 0;
+            recordCount = foundCollection.length;
+          } else {
+            recordCount = payload.quantity;
+          }
+        } else {
+          recordCount = 1;
+        }
       } else {
         recordCount = 1;
       }

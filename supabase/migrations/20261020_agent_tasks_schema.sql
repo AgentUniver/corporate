@@ -175,9 +175,9 @@ BEGIN
         RAISE EXCEPTION 'Monotonic version violation: NEW.version (%) must be strictly greater than OLD.version (%)', NEW.version, OLD.version;
     END IF;
 
-    -- 2. Terminal states cannot revert to active workflow states (P1-4)
-    IF OLD.status IN ('verified', 'completed', 'refunded', 'cancelled') 
-       AND NEW.status IN ('pending', 'escrowed', 'processing', 'delivered', 'disputed') THEN
+    -- 2. Terminal states cannot revert to active workflow states (P1-4 / P0-3: completed removed to permit dispute/settle)
+    IF OLD.status IN ('verified', 'refunded', 'cancelled') 
+       AND NEW.status IN ('pending', 'escrowed', 'processing') THEN
         RAISE EXCEPTION 'Terminal state immutability violation: Cannot transition task from terminal status % to %', OLD.status, NEW.status;
     END IF;
 

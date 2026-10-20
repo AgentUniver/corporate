@@ -52,6 +52,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   }
 
+  // 前置门禁检查：若未提供内部密钥且未提供任何任务令牌，直接 401 拒绝，杜绝未鉴权枚举（P1-5）
+  if (!authorized && !taskToken) {
+    return res.status(401).json({
+      success: false,
+      error: { code: 'ACP_AUTH_FAILED', message: 'Invalid or missing authorization credentials' }
+    });
+  }
+
   try {
     const { data: taskRecord, error: fetchErr } = await supabase
       .from('agent_tasks')

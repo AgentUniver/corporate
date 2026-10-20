@@ -39,6 +39,7 @@ test('P0-A & N2 & P0-1 & P0-2: All Auditor POC Defective Deliverables Must Fail-
 
     // Round 12 P0-2 volume metering forgery POCs
     { name: 'P0-2 Forgery: { verifiedCount: 1000, text: "一句报告" } (qty=1000)', payload: { verifiedCount: 1000, text: '一句报告技术分析文档已生成' }, qty: 1000 },
+    { name: 'P0-1 OP probe: { quantity: 1000, text: "一句报告" } (qty=1000)', payload: { quantity: 1000, text: '一句报告技术分析文档已生成' }, qty: 1000 },
     { name: 'P0-2 Forgery: { verifiedCount: 1000, output: { items: [{ title: "a", description: "substantive text" }] } } (qty=1000)', payload: { verifiedCount: 1000, output: { items: [{ title: 'a', description: 'substantive text' }] } }, qty: 1000 },
 
     // Round 11 P0-A new POCs
@@ -275,8 +276,8 @@ test('P1-1 & P1-2: Monotonic Version CAS Fencing Simulation Across All Lifecycle
     if (nextVer <= record.version) {
       throw new Error('Monotonic version violation');
     }
-    // Simulate DB trigger: terminal state immutability (P1-4)
-    if (['verified', 'completed', 'refunded', 'cancelled'].includes(record.status) && ['pending', 'escrowed', 'processing', 'delivered', 'disputed'].includes(newStatus)) {
+    // Simulate DB trigger: terminal state immutability (P1-4 / P0-3)
+    if (['verified', 'refunded', 'cancelled'].includes(record.status) && ['pending', 'escrowed', 'processing'].includes(newStatus)) {
       throw new Error('Terminal state immutability violation: Cannot transition task from terminal status');
     }
     if (['refunded', 'cancelled'].includes(record.status) && newStatus !== record.status) {
@@ -316,9 +317,19 @@ test('P1-1 & P1-2: Monotonic Version CAS Fencing Simulation Across All Lifecycle
   assert.strictEqual(complete.success, true);
   assert.strictEqual(record.version, 6);
 
-  // 6. Terminal State Immutability check: completed cannot transition back to processing or escrowed
+  // 6. Dispute on completed order is ALLOWED (P0-3)
+  const disputeCompleted = executeCAS(6, 'disputed');
+  assert.strictEqual(disputeCompleted.success, true);
+  assert.strictEqual(record.version, 7);
+
+  // 7. Re-settle after dispute: disputed -> verified is ALLOWED
+  const reSettle = executeCAS(7, 'verified');
+  assert.strictEqual(reSettle.success, true);
+  assert.strictEqual(record.version, 8);
+
+  // 8. Terminal State Immutability check: verified cannot transition back to processing or escrowed
   assert.throws(() => {
-    executeCAS(6, 'processing');
+    executeCAS(8, 'processing');
   }, /Terminal state immutability violation/);
 });
 

@@ -18,20 +18,22 @@ CREATE TABLE IF NOT EXISTS agent_tasks (
 
 DO $$
 BEGIN
-    -- Ensure version column exists on existing legacy tables
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'agent_tasks' AND column_name = 'version') THEN
-        ALTER TABLE agent_tasks ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
-    END IF;
+    IF to_regclass('public.agent_tasks') IS NOT NULL THEN
+        -- Ensure version column exists on existing legacy tables
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'agent_tasks' AND column_name = 'version') THEN
+            ALTER TABLE agent_tasks ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
+        END IF;
 
-    -- Pre-repair legacy dirty status/payoutStatus pairs to ensure full validity
-    UPDATE agent_tasks SET "payoutStatus" = 'failed' WHERE status = 'failed' AND ("payoutStatus" IS NULL OR "payoutStatus" NOT IN ('refunded', 'failed'));
-    UPDATE agent_tasks SET "payoutStatus" = 'cancelled' WHERE status = 'cancelled' AND ("payoutStatus" IS NULL OR "payoutStatus" IN ('pending', 'escrowed'));
-    UPDATE agent_tasks SET "payoutStatus" = 'refunded' WHERE status = 'refunded' AND ("payoutStatus" IS NULL OR "payoutStatus" != 'refunded');
-    UPDATE agent_tasks SET "payoutStatus" = 'settled' WHERE status IN ('verified', 'completed') AND ("payoutStatus" IS NULL OR "payoutStatus" NOT IN ('settled', 'escrowed'));
-    UPDATE agent_tasks SET "payoutStatus" = 'escrowed' WHERE status = 'delivered' AND "payoutStatus" = 'settled';
+        -- Pre-repair legacy dirty status/payoutStatus pairs to ensure full validity
+        UPDATE agent_tasks SET "payoutStatus" = 'failed' WHERE status = 'failed' AND ("payoutStatus" IS NULL OR "payoutStatus" NOT IN ('refunded', 'failed'));
+        UPDATE agent_tasks SET "payoutStatus" = 'cancelled' WHERE status = 'cancelled' AND ("payoutStatus" IS NULL OR "payoutStatus" IN ('pending', 'escrowed'));
+        UPDATE agent_tasks SET "payoutStatus" = 'refunded' WHERE status = 'refunded' AND ("payoutStatus" IS NULL OR "payoutStatus" != 'refunded');
+        UPDATE agent_tasks SET "payoutStatus" = 'settled' WHERE status IN ('verified', 'completed') AND ("payoutStatus" IS NULL OR "payoutStatus" NOT IN ('settled', 'escrowed'));
+        UPDATE agent_tasks SET "payoutStatus" = 'escrowed' WHERE status = 'delivered' AND "payoutStatus" = 'settled';
+    END IF;
 END $$;
 
--- 1. Upgrade monotonic version function to enforce terminal state immutability (P1-4)
+-- 1. Upgrade monotonic version function to enforce terminal state immutability (P1-4 / P0-3)
 CREATE OR REPLACE FUNCTION trg_agent_tasks_monotonic_version()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -40,9 +42,9 @@ BEGIN
         RAISE EXCEPTION 'Monotonic version violation: NEW.version (%) must be strictly greater than OLD.version (%)', NEW.version, OLD.version;
     END IF;
 
-    -- Terminal states cannot revert to active workflow states (P1-4)
-    IF OLD.status IN ('verified', 'completed', 'refunded', 'cancelled') 
-       AND NEW.status IN ('pending', 'escrowed', 'processing', 'delivered', 'disputed') THEN
+    -- Terminal states cannot revert to active workflow states (P1-4 / P0-3: completed removed to permit dispute/settle)
+    IF OLD.status IN ('verified', 'refunded', 'cancelled') 
+       AND NEW.status IN ('pending', 'escrowed', 'processing') THEN
         RAISE EXCEPTION 'Terminal state immutability violation: Cannot transition task from terminal status % to %', OLD.status, NEW.status;
     END IF;
 
