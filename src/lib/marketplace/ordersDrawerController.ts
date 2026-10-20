@@ -104,7 +104,7 @@ export function setupOrdersDrawer() {
                 <div class="flex items-center gap-2">
                   <span class="font-bold text-white text-sm">${escapeHtml(order.agentName || 'Autonomous Agent')}</span>
                   <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${statusBadgeClass} border">
-                    ${statusLabel}
+                    ${escapeHtml(statusLabel)}
                   </span>
                 </div>
                 <div class="text-[11px] text-slate-400 font-mono mt-0.5">
@@ -168,7 +168,7 @@ export function setupOrdersDrawer() {
               <div class="p-2.5 rounded-lg bg-indigo-950/40 border border-indigo-500/40 text-[11px] space-y-1.5">
                 <div class="flex items-center justify-between">
                   <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 uppercase">
-                    Arbitration: ${escapeHtml(order.arbitrationVerdict.ruling.replace('_', ' '))}
+                    Arbitration: ${escapeHtml(typeof order.arbitrationVerdict.ruling === 'string' ? order.arbitrationVerdict.ruling.replace('_', ' ') : 'VERDICT')}
                   </span>
                   <span class="text-slate-400 font-mono text-[10px]">Confidence: ${Math.round(order.arbitrationVerdict.confidence * 100)}%</span>
                 </div>

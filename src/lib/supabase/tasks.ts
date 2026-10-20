@@ -1,5 +1,6 @@
 import { supabase } from './client';
 import type { TaskOrder } from './types';
+import { validateDeliverableSchema, evaluateDisputeArbitration } from '../arbitration/validator';
 
 function generateSecureToken(prefix = 'tok_'): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -18,6 +19,26 @@ function generateSecureOrderId(): string {
     return 'ord-' + crypto.randomUUID().substring(0, 8);
   }
   return 'ord-' + Math.random().toString(36).substring(2, 10);
+}
+
+function getLocalOrders(): TaskOrder[] {
+  if (typeof window !== 'undefined') {
+    try {
+      return JSON.parse(localStorage.getItem('agentuniver_hired_tasks') || '[]');
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function saveLocalOrders(orders: TaskOrder[]): void {
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem('agentuniver_hired_tasks', JSON.stringify(orders));
+      window.dispatchEvent(new Event('agentuniver_tasks_updated'));
+    } catch {}
+  }
 }
 
 /**
@@ -48,7 +69,9 @@ export async function hireAgentTask(taskData: Omit<TaskOrder, 'id' | 'createdAt'
         .select()
         .single();
       if (!error && data) {
-        window.dispatchEvent(new Event('agentuniver_tasks_updated'));
+        const orders = getLocalOrders();
+        orders.unshift(data as TaskOrder);
+        saveLocalOrders(orders);
         return data as TaskOrder;
       }
     } catch (err) {
@@ -57,13 +80,9 @@ export async function hireAgentTask(taskData: Omit<TaskOrder, 'id' | 'createdAt'
   }
 
   // Local fallback
-  if (typeof window !== 'undefined') {
-    const orders: TaskOrder[] = JSON.parse(localStorage.getItem('agentuniver_hired_tasks') || '[]');
-    orders.unshift(newOrder);
-    localStorage.setItem('agentuniver_hired_tasks', JSON.stringify(orders));
-    window.dispatchEvent(new Event('agentuniver_tasks_updated'));
-  }
-
+  const orders = getLocalOrders();
+  orders.unshift(newOrder);
+  saveLocalOrders(orders);
   return newOrder;
 }
 
@@ -71,6 +90,7 @@ export async function hireAgentTask(taskData: Omit<TaskOrder, 'id' | 'createdAt'
  * 获取当前用户所有工单
  */
 export async function getHiredTaskOrders(): Promise<TaskOrder[]> {
+  const localOrders = getLocalOrders();
   if (supabase) {
     try {
       const { data, error } = await supabase
@@ -78,74 +98,100 @@ export async function getHiredTaskOrders(): Promise<TaskOrder[]> {
         .select('*')
         .order('createdAt', { ascending: false });
       if (!error && data && data.length > 0) {
-        return data as TaskOrder[];
+        const localMap = new Map(localOrders.map(o => [o.id, o]));
+        const merged: TaskOrder[] = (data as TaskOrder[]).map(remote => {
+          const local = localMap.get(remote.id);
+          return {
+            ...remote,
+            taskToken: remote.taskToken || local?.taskToken
+          };
+        });
+        saveLocalOrders(merged);
+        return merged;
       }
     } catch (err) {
       console.warn('Supabase fetch tasks failed, fallback to local storage:', err);
     }
   }
 
-  if (typeof window !== 'undefined') {
-    return JSON.parse(localStorage.getItem('agentuniver_hired_tasks') || '[]');
-  }
-  return [];
+  return localOrders;
 }
-
-import { validateDeliverableSchema, evaluateDisputeArbitration } from '../arbitration/validator';
 
 /**
  * 交付结果（Worker 或模拟系统交付），同时执行数据包 Schema 校验并生成 SHA-256 存证指纹 (TASK-503)
  */
 export async function deliverTaskResult(orderId: string, resultPayload: any): Promise<TaskOrder | null> {
   const now = new Date().toISOString();
-  if (typeof window !== 'undefined') {
-    const orders: TaskOrder[] = JSON.parse(localStorage.getItem('agentuniver_hired_tasks') || '[]');
-    const idx = orders.findIndex(o => o.id === orderId);
-    if (idx !== -1) {
-      const order = orders[idx];
-      const validation = await validateDeliverableSchema(
-        resultPayload,
-        order.quantity,
-        order.slaThreshold
-      );
+  const orders = getLocalOrders();
+  let idx = orders.findIndex(o => o.id === orderId);
+  let order: TaskOrder;
 
-      // Call serverless deliver endpoint with Fail-Closed semantics
+  if (idx !== -1) {
+    order = orders[idx];
+  } else {
+    if (supabase) {
       try {
-        const resp = await fetch('/api/v1/acp/deliver/' + orderId, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(order.taskToken ? { 'X-Task-Token': order.taskToken } : {})
-          },
-          body: JSON.stringify({
-            output: resultPayload,
-            agent_slug: order.agent_slug || order.agentId
-          })
-        });
-        if (!resp.ok) {
-          const errData = await resp.json().catch(() => ({}));
-          throw new Error(errData?.error?.message || `Delivery rejected with HTTP ${resp.status}`);
+        const { data } = await supabase.from('agent_tasks').select('*').eq('id', orderId).single();
+        if (data) {
+          order = data as TaskOrder;
+        } else {
+          order = { id: orderId, status: 'escrowed', createdAt: now, taskTitle: 'Task ' + orderId, taskDescription: '', agentId: 'agent', agentName: 'Agent', subdomain: 'ai', budgetUsd: 0.1, platformFeeUsd: 0.01, orderType: 'task_based' };
         }
-      } catch (e) {
-        console.error('[ACP Deliver] Server delivery failed:', e);
-        throw e;
+      } catch {
+        order = { id: orderId, status: 'escrowed', createdAt: now, taskTitle: 'Task ' + orderId, taskDescription: '', agentId: 'agent', agentName: 'Agent', subdomain: 'ai', budgetUsd: 0.1, platformFeeUsd: 0.01, orderType: 'task_based' };
       }
-
-      orders[idx].status = 'delivered';
-      orders[idx].resultPayload = resultPayload;
-      orders[idx].deliverableFingerprint = {
-        sha256Checksum: validation.sha256Checksum,
-        verifiedCount: validation.verifiedCount,
-        integrityScore: validation.integrityScore,
-        verifiedAt: now
-      };
-      orders[idx].updatedAt = now;
-      localStorage.setItem('agentuniver_hired_tasks', JSON.stringify(orders));
-      window.dispatchEvent(new Event('agentuniver_tasks_updated'));
-      return orders[idx];
+    } else {
+      order = { id: orderId, status: 'escrowed', createdAt: now, taskTitle: 'Task ' + orderId, taskDescription: '', agentId: 'agent', agentName: 'Agent', subdomain: 'ai', budgetUsd: 0.1, platformFeeUsd: 0.01, orderType: 'task_based' };
     }
+    orders.unshift(order);
+    idx = 0;
   }
-  return null;
+
+  const validation = await validateDeliverableSchema(
+    resultPayload,
+    order.quantity,
+    order.slaThreshold
+  );
+
+  // Call serverless deliver endpoint with Fail-Closed semantics
+  let serverRespData: any = null;
+  try {
+    const resp = await fetch('/api/v1/acp/deliver/' + orderId, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(order.taskToken ? { 'X-Task-Token': order.taskToken } : {})
+      },
+      body: JSON.stringify({
+        output: resultPayload,
+        agent_slug: order.agent_slug || order.agentId
+      })
+    });
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(errData?.error?.message || `Delivery rejected with HTTP ${resp.status}`);
+    }
+    serverRespData = await resp.json().catch(() => ({}));
+  } catch (e) {
+    console.error('[ACP Deliver] Server delivery failed:', e);
+    throw e;
+  }
+
+  const finalStatus = serverRespData?.status || 'delivered';
+  const finalOutput = serverRespData?.output || resultPayload;
+  const finalFingerprint = serverRespData?.deliverable_fingerprint || {
+    sha256Checksum: validation.sha256Checksum,
+    verifiedCount: validation.verifiedCount,
+    integrityScore: validation.integrityScore,
+    verifiedAt: now
+  };
+
+  orders[idx].status = finalStatus;
+  orders[idx].resultPayload = finalOutput;
+  orders[idx].deliverableFingerprint = finalFingerprint;
+  orders[idx].updatedAt = now;
+  saveLocalOrders(orders);
+  return orders[idx];
 }
 
 /**
@@ -153,37 +199,49 @@ export async function deliverTaskResult(orderId: string, resultPayload: any): Pr
  */
 export async function verifyAndAcceptOrder(orderId: string): Promise<TaskOrder | null> {
   const now = new Date().toISOString();
-  if (typeof window !== 'undefined') {
-    const orders: TaskOrder[] = JSON.parse(localStorage.getItem('agentuniver_hired_tasks') || '[]');
-    const idx = orders.findIndex(o => o.id === orderId);
-    if (idx !== -1) {
-      const order = orders[idx];
-      try {
-        const resp = await fetch('/api/v1/acp/settle/' + orderId, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(order.taskToken ? { 'X-Task-Token': order.taskToken } : {})
-          }
-        });
-        if (!resp.ok) {
-          const errData = await resp.json().catch(() => ({}));
-          throw new Error(errData?.error?.message || `Settlement rejected with HTTP ${resp.status}`);
-        }
-      } catch (e) {
-        console.error('[ACP Settle] Settlement failed:', e);
-        throw e;
-      }
+  const orders = getLocalOrders();
+  let idx = orders.findIndex(o => o.id === orderId);
+  let order: TaskOrder;
 
-      orders[idx].status = 'verified';
-      orders[idx].payoutStatus = 'settled';
-      orders[idx].updatedAt = now;
-      localStorage.setItem('agentuniver_hired_tasks', JSON.stringify(orders));
-      window.dispatchEvent(new Event('agentuniver_tasks_updated'));
-      return orders[idx];
+  if (idx !== -1) {
+    order = orders[idx];
+  } else {
+    if (supabase) {
+      try {
+        const { data } = await supabase.from('agent_tasks').select('*').eq('id', orderId).single();
+        order = (data as TaskOrder) || { id: orderId, status: 'delivered', createdAt: now, taskTitle: 'Task ' + orderId, taskDescription: '', agentId: 'agent', agentName: 'Agent', subdomain: 'ai', budgetUsd: 0.1, platformFeeUsd: 0.01, orderType: 'task_based' };
+      } catch {
+        order = { id: orderId, status: 'delivered', createdAt: now, taskTitle: 'Task ' + orderId, taskDescription: '', agentId: 'agent', agentName: 'Agent', subdomain: 'ai', budgetUsd: 0.1, platformFeeUsd: 0.01, orderType: 'task_based' };
+      }
+    } else {
+      order = { id: orderId, status: 'delivered', createdAt: now, taskTitle: 'Task ' + orderId, taskDescription: '', agentId: 'agent', agentName: 'Agent', subdomain: 'ai', budgetUsd: 0.1, platformFeeUsd: 0.01, orderType: 'task_based' };
     }
+    orders.unshift(order);
+    idx = 0;
   }
-  return null;
+
+  try {
+    const resp = await fetch('/api/v1/acp/settle/' + orderId, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(order.taskToken ? { 'X-Task-Token': order.taskToken } : {})
+      }
+    });
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(errData?.error?.message || `Settlement rejected with HTTP ${resp.status}`);
+    }
+  } catch (e) {
+    console.error('[ACP Settle] Settlement failed:', e);
+    throw e;
+  }
+
+  orders[idx].status = 'verified';
+  orders[idx].payoutStatus = 'settled';
+  orders[idx].updatedAt = now;
+  saveLocalOrders(orders);
+  return orders[idx];
 }
 
 /**
@@ -191,54 +249,68 @@ export async function verifyAndAcceptOrder(orderId: string): Promise<TaskOrder |
  */
 export async function disputeOrder(orderId: string, disputeReason: string): Promise<TaskOrder | null> {
   const now = new Date().toISOString();
-  if (typeof window !== 'undefined') {
-    const orders: TaskOrder[] = JSON.parse(localStorage.getItem('agentuniver_hired_tasks') || '[]');
-    const idx = orders.findIndex(o => o.id === orderId);
-    if (idx !== -1) {
-      const order = orders[idx];
-      let verdict = await evaluateDisputeArbitration(order, disputeReason);
+  const orders = getLocalOrders();
+  let idx = orders.findIndex(o => o.id === orderId);
+  let order: TaskOrder;
 
+  if (idx !== -1) {
+    order = orders[idx];
+  } else {
+    if (supabase) {
       try {
-        const resp = await fetch('/api/v1/acp/dispute/' + orderId, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(order.taskToken ? { 'X-Task-Token': order.taskToken } : {})
-          },
-          body: JSON.stringify({ dispute_reason: disputeReason })
-        });
-        if (!resp.ok) {
-          const errData = await resp.json().catch(() => ({}));
-          throw new Error(errData?.error?.message || `Dispute rejected with HTTP ${resp.status}`);
-        }
-        const resJson = await resp.json().catch(() => ({}));
-        if (resJson.verdict) {
-          verdict = resJson.verdict;
-        }
-      } catch (e) {
-        console.error('[ACP Dispute] Dispute evaluation failed:', e);
-        throw e;
+        const { data } = await supabase.from('agent_tasks').select('*').eq('id', orderId).single();
+        order = (data as TaskOrder) || { id: orderId, status: 'delivered', createdAt: now, taskTitle: 'Task ' + orderId, taskDescription: '', agentId: 'agent', agentName: 'Agent', subdomain: 'ai', budgetUsd: 0.1, platformFeeUsd: 0.01, orderType: 'task_based' };
+      } catch {
+        order = { id: orderId, status: 'delivered', createdAt: now, taskTitle: 'Task ' + orderId, taskDescription: '', agentId: 'agent', agentName: 'Agent', subdomain: 'ai', budgetUsd: 0.1, platformFeeUsd: 0.01, orderType: 'task_based' };
       }
-
-      orders[idx].disputeReason = disputeReason;
-      orders[idx].arbitrationVerdict = verdict;
-      orders[idx].updatedAt = now;
-
-      // 依据裁决直接秒级定谳
-      if (verdict.ruling === 'refund_client') {
-        orders[idx].status = 'refunded';
-      } else if (verdict.ruling === 'settle_developer') {
-        orders[idx].status = 'verified';
-      } else {
-        orders[idx].status = 'disputed';
-      }
-
-      localStorage.setItem('agentuniver_hired_tasks', JSON.stringify(orders));
-      window.dispatchEvent(new Event('agentuniver_tasks_updated'));
-      return orders[idx];
+    } else {
+      order = { id: orderId, status: 'delivered', createdAt: now, taskTitle: 'Task ' + orderId, taskDescription: '', agentId: 'agent', agentName: 'Agent', subdomain: 'ai', budgetUsd: 0.1, platformFeeUsd: 0.01, orderType: 'task_based' };
     }
+    orders.unshift(order);
+    idx = 0;
   }
-  return null;
+
+  let verdict: any = null;
+  try {
+    const resp = await fetch('/api/v1/acp/dispute/' + orderId, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(order.taskToken ? { 'X-Task-Token': order.taskToken } : {})
+      },
+      body: JSON.stringify({ dispute_reason: disputeReason })
+    });
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(errData?.error?.message || `Dispute rejected with HTTP ${resp.status}`);
+    }
+    const resJson = await resp.json().catch(() => ({}));
+    verdict = resJson.verdict;
+  } catch (e) {
+    console.error('[ACP Dispute] Dispute evaluation failed:', e);
+    throw e;
+  }
+
+  if (!verdict) {
+    verdict = await evaluateDisputeArbitration(order, disputeReason);
+  }
+
+  orders[idx].disputeReason = disputeReason;
+  orders[idx].arbitrationVerdict = verdict;
+  orders[idx].updatedAt = now;
+
+  if (verdict.ruling === 'refund_client') {
+    orders[idx].status = 'refunded';
+    orders[idx].payoutStatus = 'refunded';
+  } else if (verdict.ruling === 'settle_developer') {
+    orders[idx].status = 'verified';
+    orders[idx].payoutStatus = 'settled';
+  } else {
+    orders[idx].status = 'disputed';
+  }
+
+  saveLocalOrders(orders);
+  return orders[idx];
 }
 
 /**
@@ -246,35 +318,47 @@ export async function disputeOrder(orderId: string, disputeReason: string): Prom
  */
 export async function refundDisputedOrder(orderId: string): Promise<TaskOrder | null> {
   const now = new Date().toISOString();
-  if (typeof window !== 'undefined') {
-    const orders: TaskOrder[] = JSON.parse(localStorage.getItem('agentuniver_hired_tasks') || '[]');
-    const idx = orders.findIndex(o => o.id === orderId);
-    if (idx !== -1) {
-      const order = orders[idx];
-      try {
-        const resp = await fetch('/api/v1/acp/refund/' + orderId, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(order.taskToken ? { 'X-Task-Token': order.taskToken } : {})
-          }
-        });
-        if (!resp.ok) {
-          const errData = await resp.json().catch(() => ({}));
-          throw new Error(errData?.error?.message || `Refund rejected with HTTP ${resp.status}`);
-        }
-      } catch (e) {
-        console.error('[ACP Refund] Refund release failed:', e);
-        throw e;
-      }
+  const orders = getLocalOrders();
+  let idx = orders.findIndex(o => o.id === orderId);
+  let order: TaskOrder;
 
-      orders[idx].status = 'refunded';
-      orders[idx].payoutStatus = 'refunded';
-      orders[idx].updatedAt = now;
-      localStorage.setItem('agentuniver_hired_tasks', JSON.stringify(orders));
-      window.dispatchEvent(new Event('agentuniver_tasks_updated'));
-      return orders[idx];
+  if (idx !== -1) {
+    order = orders[idx];
+  } else {
+    if (supabase) {
+      try {
+        const { data } = await supabase.from('agent_tasks').select('*').eq('id', orderId).single();
+        order = (data as TaskOrder) || { id: orderId, status: 'disputed', createdAt: now, taskTitle: 'Task ' + orderId, taskDescription: '', agentId: 'agent', agentName: 'Agent', subdomain: 'ai', budgetUsd: 0.1, platformFeeUsd: 0.01, orderType: 'task_based' };
+      } catch {
+        order = { id: orderId, status: 'disputed', createdAt: now, taskTitle: 'Task ' + orderId, taskDescription: '', agentId: 'agent', agentName: 'Agent', subdomain: 'ai', budgetUsd: 0.1, platformFeeUsd: 0.01, orderType: 'task_based' };
+      }
+    } else {
+      order = { id: orderId, status: 'disputed', createdAt: now, taskTitle: 'Task ' + orderId, taskDescription: '', agentId: 'agent', agentName: 'Agent', subdomain: 'ai', budgetUsd: 0.1, platformFeeUsd: 0.01, orderType: 'task_based' };
     }
+    orders.unshift(order);
+    idx = 0;
   }
-  return null;
+
+  try {
+    const resp = await fetch('/api/v1/acp/refund/' + orderId, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(order.taskToken ? { 'X-Task-Token': order.taskToken } : {})
+      }
+    });
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(errData?.error?.message || `Refund rejected with HTTP ${resp.status}`);
+    }
+  } catch (e) {
+    console.error('[ACP Refund] Refund release failed:', e);
+    throw e;
+  }
+
+  orders[idx].status = 'refunded';
+  orders[idx].payoutStatus = 'refunded';
+  orders[idx].updatedAt = now;
+  saveLocalOrders(orders);
+  return orders[idx];
 }

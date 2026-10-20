@@ -68,9 +68,10 @@ BEGIN
     END IF;
 
     -- 2. Status Check Constraint Rebuild
+    ALTER TABLE agent_tasks DROP CONSTRAINT IF EXISTS "agent_tasks_status_check";
     ALTER TABLE agent_tasks DROP CONSTRAINT IF EXISTS agent_tasks_status_check;
     ALTER TABLE agent_tasks DROP CONSTRAINT IF EXISTS check_agent_tasks_status;
-    ALTER TABLE agent_tasks ADD CONSTRAINT agent_tasks_status_check CHECK (
+    ALTER TABLE agent_tasks ADD CONSTRAINT "agent_tasks_status_check" CHECK (
         status IN (
             'pending',
             'escrowed',
@@ -79,15 +80,18 @@ BEGIN
             'verified',
             'disputed',
             'refunded',
-            'failed'
+            'failed',
+            'completed'
         )
     );
     ALTER TABLE agent_tasks ALTER COLUMN status SET DEFAULT 'escrowed';
 
-    -- 3. PayoutStatus Check Constraint Rebuild
+    -- 3. PayoutStatus Check Constraint Rebuild (Handle both quoted mixed-case and unquoted lowercase)
+    ALTER TABLE agent_tasks DROP CONSTRAINT IF EXISTS "agent_tasks_payoutStatus_check";
     ALTER TABLE agent_tasks DROP CONSTRAINT IF EXISTS agent_tasks_payoutStatus_check;
+    ALTER TABLE agent_tasks DROP CONSTRAINT IF EXISTS agent_tasks_payoutstatus_check;
     ALTER TABLE agent_tasks DROP CONSTRAINT IF EXISTS check_agent_tasks_payout_status;
-    ALTER TABLE agent_tasks ADD CONSTRAINT agent_tasks_payoutStatus_check CHECK (
+    ALTER TABLE agent_tasks ADD CONSTRAINT "agent_tasks_payoutStatus_check" CHECK (
         "payoutStatus" IS NULL OR "payoutStatus" IN ('pending', 'escrowed', 'settled', 'refunded', 'failed')
     );
 END $$;
@@ -125,7 +129,14 @@ CREATE POLICY "Clients can insert new orders"
         status IN ('pending', 'escrowed')
         AND ("payoutStatus" IS NULL OR "payoutStatus" = 'pending' OR "payoutStatus" = 'escrowed')
         AND "budgetUsd" >= 0.05
+        AND "budgetUsd" <= 10000.00
         AND "platformFeeUsd" >= 0
+        AND "taskToken" IS NULL
+        AND "payoutAddress" IS NULL
+        AND "payoutTxHash" IS NULL
+        AND "deliverableFingerprint" IS NULL
+        AND "arbitrationVerdict" IS NULL
+        AND "resultPayload" IS NULL
     );
 
 -- 4. Authenticated clients can view only their own task records by email match

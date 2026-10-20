@@ -45,6 +45,47 @@ export interface SchemaValidationReport {
   slaConformant: boolean;
 }
 
+function isValidIssueList(issues: any): boolean {
+  if (!Array.isArray(issues) || issues.length === 0) return false;
+  return issues.every(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+    const keys = Object.keys(item);
+    if (keys.length === 0) return false;
+    const recognizedKeys = ['type', 'original', 'suggestion', 'reason', 'message', 'description', 'rule', 'line', 'file', 'severity'];
+    return keys.some(k => recognizedKeys.includes(k) && item[k] !== null && item[k] !== undefined && String(item[k]).trim().length > 0);
+  });
+}
+
+function isValidRadar(radar: any): boolean {
+  if (!radar || typeof radar !== 'object' || Array.isArray(radar)) return false;
+  const keys = Object.keys(radar);
+  if (keys.length === 0) return false;
+  const recognizedKeys = ['architecture', 'security', 'scalability', 'maintainability', 'reliability', 'score', 'metrics', 'findings', 'quality', 'testCoverage'];
+  return keys.some(k => recognizedKeys.includes(k) && radar[k] !== null && radar[k] !== undefined);
+}
+
+function isValidDeliverablePayload(val: any): boolean {
+  if (val === null || val === undefined) return false;
+  if (typeof val === 'string') return val.trim().length > 0;
+  if (typeof val === 'number') return Number.isFinite(val);
+  if (typeof val === 'boolean') return true;
+  if (Array.isArray(val)) {
+    return val.length > 0 && val.some(item => item !== null && item !== undefined && (typeof item !== 'string' || item.trim().length > 0));
+  }
+  if (typeof val === 'object') {
+    const keys = Object.keys(val);
+    if (keys.length === 0) return false;
+    const recognizedKeys = [
+      'analysis', 'summary', 'text', 'corrected', 'score', 'code', 'data', 'result',
+      'items', 'records', 'rows', 'metrics', 'findings', 'content', 'url', 'sha',
+      'issues', 'radar', 'status', 'token', 'verifiedCount', 'output', 'report',
+      'diff', 'benchmark', 'latency', 'model', 'answer', 'solution'
+    ];
+    return keys.some(k => recognizedKeys.includes(k) && val[k] !== null && val[k] !== undefined && val[k] !== '');
+  }
+  return false;
+}
+
 /**
  * 交付数据包 Schema 字段级契约检查器 (TASK-503)
  */
@@ -108,33 +149,34 @@ export async function validateDeliverableSchema(
       integrityScore = 0;
     } else {
       if (payload.verifiedCount !== undefined) {
-        if (typeof payload.verifiedCount !== 'number' || !Number.isInteger(payload.verifiedCount) || payload.verifiedCount < 0) {
-          errors.push('verifiedCount must be a non-negative integer');
+        if (typeof payload.verifiedCount !== 'number' || !Number.isInteger(payload.verifiedCount) || payload.verifiedCount <= 0) {
+          errors.push('verifiedCount must be a positive integer');
           integrityScore = 0;
         } else {
           recordCount = payload.verifiedCount;
         }
-      } else if (typeof payload.quantity === 'number' && Number.isInteger(payload.quantity) && payload.quantity >= 0) {
+      } else if (typeof payload.quantity === 'number' && Number.isInteger(payload.quantity) && payload.quantity > 0) {
         recordCount = payload.quantity;
+      } else if (requiredQuantity && requiredQuantity > 1) {
+        recordCount = 0;
+        errors.push(`Missing verifiedCount in payload for result_based order (required ${requiredQuantity})`);
+        integrityScore = 0;
       } else {
         recordCount = 1;
       }
 
-      const hasContractField = Boolean(
-        (typeof payload.corrected === 'string' && payload.corrected.trim().length > 0) ||
-        (Array.isArray(payload.issues) && payload.issues.length > 0) ||
-        (typeof payload.dataDeliverySample === 'string' && payload.dataDeliverySample.trim().length > 0) ||
-        (typeof payload.repo === 'string' && payload.repo.trim().length > 0 && typeof payload.radar === 'object' && payload.radar !== null && Object.keys(payload.radar).length > 0) ||
-        (typeof payload.output === 'string' && payload.output.trim().length > 0) ||
-        (typeof payload.output === 'object' && payload.output !== null && Object.keys(payload.output).length > 0) ||
-        (typeof payload.result === 'string' && payload.result.trim().length > 0) ||
-        (typeof payload.result === 'object' && payload.result !== null && Object.keys(payload.result).length > 0) ||
-        (typeof payload.data === 'string' && payload.data.trim().length > 0) ||
-        (typeof payload.data === 'object' && payload.data !== null && Object.keys(payload.data).length > 0)
-      );
+      const hasValidIssues = payload.issues !== undefined && isValidIssueList(payload.issues);
+      const hasValidRadar = typeof payload.repo === 'string' && payload.repo.trim().length > 0 && isValidRadar(payload.radar);
+      const hasValidCorrected = typeof payload.corrected === 'string' && payload.corrected.trim().length > 0;
+      const hasValidSample = typeof payload.dataDeliverySample === 'string' && payload.dataDeliverySample.trim().length > 0;
+      const hasValidOutput = payload.output !== undefined && isValidDeliverablePayload(payload.output);
+      const hasValidResult = payload.result !== undefined && isValidDeliverablePayload(payload.result);
+      const hasValidData = payload.data !== undefined && isValidDeliverablePayload(payload.data);
+
+      const hasContractField = hasValidIssues || hasValidRadar || hasValidCorrected || hasValidSample || hasValidOutput || hasValidResult || hasValidData;
 
       if (!hasContractField) {
-        errors.push('Payload schema lacks non-empty deliverable contract fields (corrected, issues, dataDeliverySample, repo/radar, output, result, or data)');
+        errors.push('Payload schema lacks non-empty deliverable contract fields (valid issues with fields, valid repo/radar, corrected text, or recognized output/result/data)');
         integrityScore = 0;
       }
     }
@@ -184,8 +226,8 @@ export async function evaluateDisputeArbitration(
     order.slaThreshold
   );
 
-  // 1. 若履约交付物不存在或格式严重损坏
-  if (!order.resultPayload || report.integrityScore < 50) {
+  // 1. 若履约交付物不存在或校验不合格
+  if (!order.resultPayload || !report.valid || report.integrityScore < 50) {
     return {
       ruling: 'refund_client',
       rationale: `Automated inspection failed: Deliverable payload integrity score (${report.integrityScore}/100) fell below the minimal SLA viability threshold. Contract defect confirmed.`,

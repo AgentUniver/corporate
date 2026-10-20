@@ -75,7 +75,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const { data: taskCheck, error: checkErr } = await supabase
       .from('agent_tasks')
-      .select('id, taskToken, quantity, slaThreshold, status')
+      .select('id, taskToken, quantity, slaThreshold, status, resultPayload, deliverableFingerprint, agent_slug, agentId')
       .eq('id', taskId)
       .single();
 
@@ -165,7 +165,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         deliverableFingerprint: deliverableFingerprint,
         deliveredAt: deliveredAt,
         updatedAt: deliveredAt,
-        ...(agent_slug ? { agent_slug, agentId: agent_slug } : {})
+        ...(agent_slug && !existingTaskRecord.agent_slug && !existingTaskRecord.agentId ? { agent_slug, agentId: agent_slug } : {})
       })
       .eq('id', taskId)
       .in('status', ['pending', 'escrowed', 'processing'])

@@ -60,7 +60,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .single();
 
     if (fetchErr) {
-      return res.status(503).json({ success: false, error: { code: 'ACP_DB_ERROR', message: `Database fetch error: ${fetchErr.message}` } });
+      if (fetchErr.code === 'PGRST116') {
+        return res.status(404).json({ success: false, error: { code: 'ACP_TASK_NOT_FOUND', message: `Task '${taskId}' not found in ledger` } });
+      }
+      return res.status(503).json({ success: false, error: { code: 'ACP_DB_ERROR', message: `Database fetch error: ${fetchErr.message}`, retryable: true } });
     }
     if (!taskRecord) {
       return res.status(404).json({ success: false, error: { code: 'ACP_TASK_NOT_FOUND', message: `Task '${taskId}' not found in ledger` } });
@@ -109,7 +112,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .in('status', ['delivered', 'completed'])
       .select('id, status, updatedAt');
 
-    if (updateErr || !updatedRows || updatedRows.length === 0) {
+    if (updateErr) {
+      return res.status(503).json({ success: false, error: { code: 'ACP_DB_UPDATE_ERROR', message: `Database update error: ${updateErr.message}`, retryable: true } });
+    }
+    if (!updatedRows || updatedRows.length === 0) {
       return res.status(409).json({ success: false, error: { code: 'ACP_SETTLEMENT_CONFLICT', message: 'Task state conflict during settlement' } });
     }
 

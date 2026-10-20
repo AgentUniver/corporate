@@ -75,7 +75,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .eq('id', taskId)
       .single();
 
-    if (fetchErr || !taskRecord) {
+    if (fetchErr) {
+      if (fetchErr.code === 'PGRST116') {
+        return res.status(404).json({ success: false, error: { code: 'ACP_TASK_NOT_FOUND', message: `Task '${taskId}' not found in ledger` } });
+      }
+      return res.status(503).json({ success: false, error: { code: 'ACP_DB_ERROR', message: `Database fetch error: ${fetchErr.message}`, retryable: true } });
+    }
+    if (!taskRecord) {
       return res.status(404).json({ success: false, error: { code: 'ACP_TASK_NOT_FOUND', message: `Task '${taskId}' not found in ledger` } });
     }
 
@@ -89,6 +95,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (!authorized) {
       return res.status(401).json({ success: false, error: { code: 'ACP_AUTH_FAILED', message: 'Invalid or missing authorization credentials' } });
+    }
+
+    // Idempotent return if already in terminal state (disputed, refunded, verified)
+    if (taskRecord.status === 'disputed' || taskRecord.status === 'refunded' || taskRecord.status === 'verified') {
+      return res.status(200).json({
+        success: true,
+        task_id: taskId,
+        status: taskRecord.status,
+        verdict: taskRecord.arbitrationVerdict || {
+          ruling: taskRecord.status === 'refunded' ? 'refund_client' : 'settle_developer',
+          confidence: 1.0,
+          rationale: 'Task dispute already resolved previously',
+          evidenceHash: '',
+          arbitratedAt: taskRecord.updatedAt || new Date().toISOString()
+        },
+        meta: { idempotent_replay: true },
+        message: `Task is already in status '${taskRecord.status}'`
+      });
     }
 
     // Only allow dispute from delivered state
@@ -125,7 +149,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .in('status', ['delivered', 'completed'])
       .select('id, status, disputeReason, arbitrationVerdict, updatedAt');
 
-    if (updateErr || !updatedRows || updatedRows.length === 0) {
+    if (updateErr) {
+      return res.status(503).json({ success: false, error: { code: 'ACP_DB_UPDATE_ERROR', message: `Database update error: ${updateErr.message}`, retryable: true } });
+    }
+    if (!updatedRows || updatedRows.length === 0) {
       return res.status(409).json({ success: false, error: { code: 'ACP_DISPUTE_CONFLICT', message: 'Task state conflict during arbitration' } });
     }
 
