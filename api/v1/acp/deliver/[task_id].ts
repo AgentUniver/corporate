@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseClient } from '../_supabase';
+import { validateDeliverableSchema } from '../../../../src/lib/arbitration/validator';
 
 interface VercelRequest extends IncomingMessage {
   query: Record<string, string | string[]>;
@@ -12,85 +13,177 @@ interface VercelResponse extends ServerResponse {
   json: (data: any) => VercelResponse;
 }
 
-const ACTIVE_PROJECT_REF = 'rorfuxoelnylsvpinzbo';
-const DEFAULT_SUPABASE_URL = 'https://rorfuxoelnylsvpinzbo.supabase.co';
-const DEFAULT_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvcmZ1eG9lbG55bHN2cGluemJvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0MTk2NDgsImV4cCI6MjEwNTk5NTY0OH0.RM4q_An173aCA0uT5Msw709FcMDm78JD2tdBiY0DP84';
-
-function getSanitizedSupabaseUrl(rawUrl?: string): string {
-  if (!rawUrl) return DEFAULT_SUPABASE_URL;
-  let url = rawUrl.trim();
-  if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    url = 'https://' + url;
-  }
-  url = url.replace('https://db.', 'https://');
-  if (url.includes('lbkhvciymyzzjijuhbri')) {
-    url = url.replace('lbkhvciymyzzjijuhbri', ACTIVE_PROJECT_REF);
-  }
-  try {
-    new URL(url);
-    return url;
-  } catch {
-    return DEFAULT_SUPABASE_URL;
-  }
-}
-
-let _supabaseClient: any = null;
-function getSupabaseClient() {
-  if (_supabaseClient) return _supabaseClient;
-
-  const rawUrl = process.env.SUPABASE_URL || process.env.PUBLIC_SUPABASE_URL;
-  const cleanUrl = getSanitizedSupabaseUrl(rawUrl);
-
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SERVICE_KEY ||
-    process.env.SUPABASE_KEY ||
-    process.env.SUPABASE_ANON_KEY ||
-    process.env.PUBLIC_SUPABASE_ANON_KEY ||
-    DEFAULT_SUPABASE_KEY;
-
-  if (!cleanUrl || !key) return null;
-
-  try {
-    _supabaseClient = createClient(cleanUrl, key, {
-      auth: { persistSession: false }
-    });
-    return _supabaseClient;
-  } catch (err) {
-    console.warn('[Supabase] Failed to initialize client safely:', err);
-    return null;
-  }
-}
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, ACP-Key, Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, ACP-Key, ACP-Version, Authorization, X-Task-Token');
+  res.setHeader('ACP-Version', '2.0');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    res.setHeader('Allow', 'POST, OPTIONS');
+    return res.status(405).json({ success: false, error: { code: 'ACP_METHOD_NOT_ALLOWED', message: 'Method not allowed' } });
   }
 
   const taskId = (req.query.task_id as string) || '';
-  const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+  if (!taskId) {
+    return res.status(400).json({ success: false, error: { code: 'ACP_INVALID_TASK_ID', message: 'Missing task_id' } });
+  }
+
+  let body: any = {};
+  if (req.body) {
+    if (typeof req.body === 'string') {
+      try {
+        body = JSON.parse(req.body);
+      } catch (e) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'ACP_INVALID_JSON', message: 'Malformed JSON payload in request body' }
+        });
+      }
+    } else {
+      body = req.body;
+    }
+  }
+
   const { output, agent_slug } = body;
-  const deliveredAt = new Date().toISOString();
+  if (output === undefined || output === null) {
+    return res.status(400).json({
+      success: false,
+      error: { code: 'ACP_INPUT_INVALID', message: 'Missing required field: output' }
+    });
+  }
 
   const supabase = getSupabaseClient();
   if (!supabase) {
-    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+    return res.status(503).json({ success: false, error: { code: 'ACP_DB_UNAVAILABLE', message: 'Database service unavailable' } });
+  }
+
+  // Dual-track authentication check (P0-3 Hardened)
+  const internalKey = (process.env.ACP_INTERNAL_KEY || '').trim();
+  const acpKey = (req.headers['acp-key'] as string) || '';
+  const authHeader = (req.headers['authorization'] as string) || '';
+  const taskToken = (req.headers['x-task-token'] as string) || (body?.task_token as string) || '';
+  let authorized = false;
+  let targetQuantity: number | undefined = undefined;
+  let targetSla: string | undefined = undefined;
+
+  let existingTaskRecord: any = null;
+  try {
+    const { data: taskCheck, error: checkErr } = await supabase
+      .from('agent_tasks')
+      .select('id, taskToken, quantity, slaThreshold, status')
+      .eq('id', taskId)
+      .single();
+
+    if (!checkErr && taskCheck) {
+      existingTaskRecord = taskCheck;
+      targetQuantity = taskCheck.quantity;
+      targetSla = taskCheck.slaThreshold;
+    }
+  } catch {}
+
+  if (!existingTaskRecord) {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'ACP_TASK_NOT_FOUND', message: `Task '${taskId}' not found in ledger` }
+    });
+  }
+
+  if (internalKey) {
+    if (acpKey && acpKey === internalKey) {
+      authorized = true;
+    } else if (authHeader.startsWith('Bearer ') && authHeader.slice(7).trim() === internalKey) {
+      authorized = true;
+    }
+  }
+
+  if (!authorized && taskToken) {
+    // Strict token equality (no startsWith bypass)
+    if (typeof existingTaskRecord.taskToken === 'string' &&
+        existingTaskRecord.taskToken.length >= 10 &&
+        existingTaskRecord.taskToken === taskToken) {
+      authorized = true;
+    }
+  }
+
+  if (!authorized) {
+    return res.status(401).json({
+      success: false,
+      error: { code: 'ACP_AUTH_FAILED', message: 'Invalid or missing authorization credentials' }
+    });
+  }
+
+  // Idempotent return if already delivered or verified
+  if (existingTaskRecord.status === 'delivered' || existingTaskRecord.status === 'verified') {
+    return res.status(200).json({
+      success: true,
+      task_id: taskId,
+      status: existingTaskRecord.status,
+      output: existingTaskRecord.resultPayload,
+      deliverable_fingerprint: existingTaskRecord.deliverableFingerprint,
+      meta: { idempotent_replay: true }
+    });
+  }
+
+  // Prevent delivery on terminal or refunded tasks
+  if (existingTaskRecord.status === 'refunded' || existingTaskRecord.status === 'disputed' || existingTaskRecord.status === 'failed') {
+    return res.status(400).json({
+      success: false,
+      error: { code: 'ACP_INVALID_TASK_STATE', message: `Cannot deliver output for task in state '${existingTaskRecord.status}'` }
+    });
+  }
+
+  const deliveredAt = new Date().toISOString();
+
+  // Validate deliverable schema and generate SHA-256 fingerprint (P0-2 Gate)
+  const validation = await validateDeliverableSchema(output, targetQuantity, targetSla);
+  const deliverableFingerprint = {
+    sha256Checksum: validation.sha256Checksum,
+    verifiedCount: validation.verifiedCount,
+    integrityScore: validation.integrityScore,
+    verifiedAt: deliveredAt
+  };
+
+  if (!validation.valid || validation.integrityScore < 60) {
+    return res.status(422).json({
+      success: false,
+      error: { code: 'ACP_DELIVERABLE_INVALID', message: `Output failed schema validation: ${validation.errors.join('; ')}` },
+      deliverable_fingerprint: deliverableFingerprint
+    });
   }
 
   try {
-    const { data, error } = await supabase.from('agent_tasks').update({
-      status: 'completed',
-      resultPayload: output,
-      deliveredAt: deliveredAt
-    }).eq('id', taskId).select();
+    const { data, error } = await supabase
+      .from('agent_tasks')
+      .update({
+        status: 'delivered',
+        resultPayload: output,
+        deliverableFingerprint: deliverableFingerprint,
+        deliveredAt: deliveredAt,
+        updatedAt: deliveredAt,
+        ...(agent_slug ? { agent_slug, agentId: agent_slug } : {})
+      })
+      .eq('id', taskId)
+      .in('status', ['pending', 'escrowed', 'processing'])
+      .select('id, status, deliveredAt, deliverableFingerprint');
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: { code: 'ACP_LEDGER_UPDATE_FAILED', message: error.message || 'Database ledger update error' }
+      });
+    }
+
+    if (!data || data.length === 0) {
+      return res.status(409).json({
+        success: false,
+        error: { code: 'ACP_TASK_STATE_CONFLICT', message: `Task '${taskId}' was not in deliverable state` }
+      });
+    }
 
     return res.status(200).json({
       success: true,
@@ -98,12 +191,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       agent_slug: agent_slug,
       status: 'delivered',
       delivered_at: deliveredAt,
-      message: 'Delivery confirmed and logged into Supabase ledger.'
+      deliverable_fingerprint: deliverableFingerprint,
+      message: 'Delivery confirmed and logged into Supabase ledger with SHA-256 provenance.'
     });
   } catch (err: any) {
     return res.status(500).json({
       success: false,
-      error: err?.message || 'Failed to confirm task delivery'
+      error: { code: 'ACP_INTERNAL_ERROR', message: err?.message || 'Failed to confirm task delivery' }
     });
   }
 }

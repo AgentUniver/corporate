@@ -87,7 +87,7 @@ import Container from '../../components/ui/Container.astro';
           <button type="button" class="preset-chip px-2.5 py-1 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/40 text-slate-300 hover:text-emerald-400 font-mono transition" data-repo="astral-sh/uv">astral-sh/uv</button>
           <button type="button" class="preset-chip px-2.5 py-1 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/40 text-slate-300 hover:text-emerald-400 font-mono transition" data-repo="facebook/react">facebook/react</button>
           <button type="button" class="preset-chip px-2.5 py-1 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/40 text-slate-300 hover:text-emerald-400 font-mono transition" data-repo="shadcn/ui">shadcn/ui</button>
-          <button type="button" class="preset-chip px-2.5 py-1 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/40 text-slate-300 hover:text-emerald-400 font-mono transition" data-repo="AgentUniver/corporate">AgentUniver</button>
+          <button type="button" class="preset-chip px-2.5 py-1 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/40 text-slate-300 hover:text-emerald-400 font-mono transition" data-repo="AgentUniver/agentuniver">AgentUniver</button>
         </div>
       </div>
 
@@ -115,6 +115,18 @@ import Container from '../../components/ui/Container.astro';
             <span>[0.2s] Connecting to GitHub Repository API...</span>
           </div>
         </div>
+      </div>
+
+      <!-- Audit Error Card (Hidden by default) -->
+      <div id="audit-error" class="hidden max-w-2xl mx-auto my-12 p-6 rounded-3xl bg-rose-950/40 border border-rose-500/30 backdrop-blur-xl shadow-2xl text-center animate-fade-in">
+        <div class="w-12 h-12 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center mx-auto mb-4 border border-rose-500/30">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        </div>
+        <h3 id="audit-error-title" class="text-lg font-bold text-white mb-2">Repository Audit Failed</h3>
+        <p id="audit-error-desc" class="text-xs sm:text-sm text-rose-200/90 font-mono leading-relaxed mb-4">An error occurred while inspecting the repository.</p>
+        <div class="text-[11px] text-slate-400 font-mono">Check if the repository exists, is public, and formatted as 'owner/repo'.</div>
       </div>
 
       <!-- Audit Report Section (Hidden until result ready) -->
@@ -321,6 +333,9 @@ import Container from '../../components/ui/Container.astro';
   const btnRun = document.getElementById('btn-run-audit') as HTMLButtonElement;
   const scannerState = document.getElementById('scanner-state');
   const auditReport = document.getElementById('audit-report');
+  const auditError = document.getElementById('audit-error');
+  const auditErrorTitle = document.getElementById('audit-error-title');
+  const auditErrorDesc = document.getElementById('audit-error-desc');
   const terminalLogs = document.getElementById('terminal-logs');
   const btnShareX = document.getElementById('btn-share-x');
   const btnDownloadCard = document.getElementById('btn-download-card');
@@ -346,9 +361,10 @@ import Container from '../../components/ui/Container.astro';
     // Normalize
     const targetRepo = rawVal.replace(/^https?:\/\/github\.com\//i, '').replace(/\/$/, '').replace(/\.git$/i, '');
 
-    // UI State: Scanning
+    // UI State: Reset and Scanning
     if (scannerState) scannerState.classList.remove('hidden');
     if (auditReport) auditReport.classList.add('hidden');
+    if (auditError) auditError.classList.add('hidden');
     if (btnRun) {
       btnRun.disabled = true;
       btnRun.classList.add('opacity-60', 'cursor-not-allowed');
@@ -367,34 +383,55 @@ import Container from '../../components/ui/Container.astro';
 
       if (res.ok) {
         const data = await res.json();
-        currentAuditData = data;
-        renderReport(data);
+        const reportData = (data && data.output && typeof data.output === 'object') ? { ...data, ...data.output } : data;
+        currentAuditData = reportData;
+        renderReport(reportData);
+        if (auditReport) auditReport.classList.remove('hidden');
+        auditReport?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       } else {
-        // Fallback to client-side heuristic engine
-        currentAuditData = generateClientFallback(targetRepo);
-        renderReport(currentAuditData);
+        let errMessage = `Server responded with status ${res.status}`;
+        try {
+          const errData = await res.json();
+          if (errData?.error?.message) {
+            errMessage = errData.error.message;
+          }
+        } catch {}
+        if (auditErrorTitle) auditErrorTitle.textContent = `Repository Audit Failed (${res.status})`;
+        if (auditErrorDesc) auditErrorDesc.textContent = errMessage;
+        if (auditError) auditError.classList.remove('hidden');
+        auditError?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
-    } catch (err) {
-      console.warn('API fetch failed, switching to client-side engine:', err);
-      currentAuditData = generateClientFallback(targetRepo);
-      renderReport(currentAuditData);
+    } catch (err: any) {
+      if (auditErrorTitle) auditErrorTitle.textContent = 'Network or Connectivity Error';
+      if (auditErrorDesc) auditErrorDesc.textContent = err?.message || 'Failed to reach ACP audit endpoint. Please check your network.';
+      if (auditError) auditError.classList.remove('hidden');
+      auditError?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } finally {
       if (scannerState) scannerState.classList.add('hidden');
-      if (auditReport) auditReport.classList.remove('hidden');
       if (btnRun) {
         btnRun.disabled = false;
         btnRun.classList.remove('opacity-60', 'cursor-not-allowed');
       }
-      auditReport?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   });
 
+  function escapeHtml(str: unknown): string {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   function simulateScannerTerminal(repo: string) {
     if (!terminalLogs) return;
+    const safeRepo = escapeHtml(repo);
     terminalLogs.innerHTML = `
       <div class="text-emerald-400 flex items-center gap-1.5">
         <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-        <span>[0.2s] Connecting to GitHub Repository API for ${repo}...</span>
+        <span>[0.2s] Connecting to GitHub Repository API for ${safeRepo}...</span>
       </div>
     `;
 
@@ -457,7 +494,7 @@ import Container from '../../components/ui/Container.astro';
           <svg class="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
           </svg>
-          <span class="leading-relaxed">${s}</span>
+          <span class="leading-relaxed">${escapeHtml(s)}</span>
         </div>
       `).join('');
     }
@@ -465,19 +502,25 @@ import Container from '../../components/ui/Container.astro';
     // Smells
     const smellsEl = document.getElementById('report-smells');
     if (smellsEl) {
-      smellsEl.innerHTML = (data.smells || []).map((sm: any) => `
+      smellsEl.innerHTML = (data.smells || []).map((sm: any) => {
+        const severity = escapeHtml(sm?.severity || 'Low');
+        const title = escapeHtml(sm?.title || '');
+        const suggestion = escapeHtml(sm?.suggestion || '');
+        const badgeClass =
+          sm?.severity === 'High' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' :
+          sm?.severity === 'Medium' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
+          'bg-blue-500/20 text-blue-400 border border-blue-500/30';
+
+        return `
         <div class="p-3.5 rounded-2xl bg-slate-950/60 border border-slate-800 text-xs space-y-1">
           <div class="flex items-center justify-between">
-            <span class="font-bold text-white">${sm.title}</span>
-            <span class="px-2 py-0.5 rounded text-[10px] font-mono uppercase ${
-              sm.severity === 'High' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' :
-              sm.severity === 'Medium' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
-              'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-            }">${sm.severity} Risk</span>
+            <span class="font-bold text-white">${title}</span>
+            <span class="px-2 py-0.5 rounded text-[10px] font-mono uppercase ${badgeClass}">${severity} Risk</span>
           </div>
-          <p class="text-slate-400 text-[11px] leading-relaxed">${sm.suggestion}</p>
+          <p class="text-slate-400 text-[11px] leading-relaxed">${suggestion}</p>
         </div>
-      `).join('');
+      `;
+      }).join('');
     }
 
     // Verdict
@@ -499,40 +542,6 @@ import Container from '../../components/ui/Container.astro';
     return num.toString();
   }
 
-  // Client Fallback Heuristic Generator (Zero Error Guarantee)
-  function generateClientFallback(repo: string) {
-    const isPopular = repo.toLowerCase().includes('react') || repo.toLowerCase().includes('uv') || repo.toLowerCase().includes('shadcn');
-    const score = isPopular ? 94 : 88;
-    const grade = score >= 92 ? 'A+' : 'A';
-    
-    return {
-      repo: repo,
-      stars: isPopular ? 84000 : 1240,
-      language: 'TypeScript',
-      grade: grade,
-      health_score: score,
-      radar: {
-        modularity: 92,
-        security: 86,
-        documentation: 94,
-        agent_readiness: 96,
-        maintainability: 89
-      },
-      summary: `${repo} reflects clean interface discipline and well-organized package topology. The system architecture shows high alignment with AI agent orchestration protocols.`,
-      strengths: [
-        'Strict module boundaries preventing cross-domain leaky abstractions',
-        'Strong static typing discipline accelerating LLM code generation precision',
-        'Self-documenting directory structure suitable for multi-agent review swarms'
-      ],
-      smells: [
-        { title: 'Subsystem ADR Documentation Gap', severity: 'Medium', suggestion: 'Document architectural decision records (ADRs) for complex state transformations.' },
-        { title: 'Dual-Rail Gate Verification Hook', severity: 'Low', suggestion: 'Integrate automated regression replay tests before merging automated agent PRs.' },
-        { title: 'Interface Schema Decoupling', severity: 'Low', suggestion: 'Expose standalone API types or OpenAPI contracts to prevent tight internal coupling.' }
-      ],
-      agent_readiness_verdict: `Rated ${grade} for autonomous agent pairing under ACP 2.0. Autonomous agents can parse repository AST and generate verified pull requests within minutes.`
-    };
-  }
-
   // Share to X
   btnShareX?.addEventListener('click', () => {
     if (!currentAuditData) return;
@@ -550,10 +559,16 @@ import Container from '../../components/ui/Container.astro';
   function downloadInfographicSvg(data: any) {
     const svgWidth = 800;
     const svgHeight = 480;
-    const repo = data.repo || 'github/repo';
-    const grade = data.grade || 'A+';
-    const score = data.health_score || 94;
-    const radar = data.radar || { modularity: 92, security: 88, documentation: 95, agent_readiness: 96, maintainability: 90 };
+    const repo = escapeHtml(data.repo || 'github/repo');
+    const grade = escapeHtml(data.grade || 'A+');
+    const score = Math.max(0, Math.min(100, Number(data.health_score) || 94));
+    const radar = {
+      modularity: Math.max(0, Math.min(100, Number(data.radar?.modularity) || 90)),
+      security: Math.max(0, Math.min(100, Number(data.radar?.security) || 85)),
+      documentation: Math.max(0, Math.min(100, Number(data.radar?.documentation) || 90)),
+      agent_readiness: Math.max(0, Math.min(100, Number(data.radar?.agent_readiness) || 90)),
+      maintainability: Math.max(0, Math.min(100, Number(data.radar?.maintainability) || 85))
+    };
     const dateStr = new Date().toISOString().split('T')[0];
 
     const svgContent = `

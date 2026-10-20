@@ -170,9 +170,7 @@ export async function verifyDidAndProof(payload: AgentManifestPayload): Promise<
  * 2. ACP 2.0 Command Dispatch Echo
  * 3. JSON Schema output contract validation
  */
-export async function runCanarySmokeProbe(endpoint: string): Promise<CanarySmokeMetrics> {
-  const startTime = Date.now();
-  
+export async function runCanarySmokeProbe(_endpoint: string): Promise<CanarySmokeMetrics> {
   // Synthetic simulation: in real production this calls endpoint/health and endpoint/acp
   const simulatedLatency = Math.floor(40 + Math.random() * 80);
   

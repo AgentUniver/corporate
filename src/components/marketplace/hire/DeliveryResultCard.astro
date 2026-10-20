@@ -3,14 +3,14 @@
 ---
 
 <div id="hire-success-view" class="hidden text-center py-2 space-y-4">
-  <div class="w-12 h-12 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto">
+  <div id="hire-result-status-icon" class="w-12 h-12 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto">
     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" />
     </svg>
   </div>
   <div>
-    <h4 class="text-lg font-bold text-white">Task Delivered & Logged!</h4>
-    <p class="text-xs text-slate-400 mt-0.5">
+    <h4 id="hire-result-heading" class="text-lg font-bold text-white">Task Delivered & Logged!</h4>
+    <p id="hire-result-subheading" class="text-xs text-slate-400 mt-0.5">
       Order <span id="hire-order-id" class="font-mono text-emerald-400 font-bold"></span> verified via ACP 2.0 network.
     </p>
   </div>
@@ -18,7 +18,7 @@
   <!-- Execution & Live Delivery Card -->
   <div id="hire-result-card" class="text-left bg-slate-950 border border-emerald-500/30 rounded-2xl p-4 space-y-3">
     <div class="flex items-center justify-between pb-2 border-b border-slate-800 text-[11px]">
-      <div class="flex items-center gap-1.5 text-emerald-400 font-semibold">
+      <div id="hire-result-status-tag" class="flex items-center gap-1.5 text-emerald-400 font-semibold">
         <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
         <span>Live Result Verified</span>
       </div>

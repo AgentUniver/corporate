@@ -1,7 +1,7 @@
-import { hireAgentTask, deliverTaskResult } from '../supabase';
+import { hireAgentTask } from '../supabase';
 import { executeWeb3ContractPayment } from './hireWeb3';
 import { renderAcpExecutionOutput } from './hireOutputRenderer';
-import { INITIAL_AGENTS } from '../../data/agents';
+import { escapeHtml } from '../utils/sanitize';
 
 export function initHireModal(): void {
   if (typeof window === 'undefined') return;
@@ -326,115 +326,134 @@ export function initHireModal(): void {
       }
 
       let lastRawOutput = '';
+      let isExecutionSuccess = false;
+
+      const resultHeadingEl = document.getElementById('hire-result-heading');
+      const resultSubheadingEl = document.getElementById('hire-result-subheading');
+      const resultStatusIconEl = document.getElementById('hire-result-status-icon');
+      const resultStatusTagEl = document.getElementById('hire-result-status-tag');
+      const reconcileCardEl = document.getElementById('hire-reconcile-card');
+      const btnDoneHire = document.getElementById('btn-done-hire');
 
       try {
-        let acpData: any = null;
-        try {
-          const acpResp = await fetch('/api/v1/acp/' + agentId, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'ACP-Version': '2.0' },
-            body: JSON.stringify({
-              task_id: orderId,
-              agent_slug: agentId,
-              caller: { id: wallet || 'web_user', role: 'client' },
-              input: { text: desc, language: 'en' },
-              mode: 'sync',
-              budget_usd: budget
-            })
-          });
-
-          if (acpResp.ok) {
-            acpData = await acpResp.json();
-          }
-        } catch {
-          // Live ACP endpoint unreachable or static deployment, engage fallback engine
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'ACP-Version': '2.0'
+        };
+        if (createdOrder.taskToken) {
+          headers['X-Task-Token'] = createdOrder.taskToken;
+        }
+        const storedAcpKey = localStorage.getItem('agentuniver_acp_key');
+        if (storedAcpKey) {
+          headers['ACP-Key'] = storedAcpKey;
         }
 
-        if (!acpData || !acpData.output) {
-          const nowIso = new Date().toISOString();
-          const targetAgent = INITIAL_AGENTS.find(a => a.id === agentId);
-          const agentCat = targetAgent?.category || 'automation';
+        const acpResp = await fetch('/api/v1/acp/' + agentId, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            task_id: orderId,
+            task_token: createdOrder.taskToken,
+            agent_slug: agentId,
+            caller: { id: wallet || 'web_user', role: 'client' },
+            input: { text: desc, language: 'en' },
+            mode: 'sync',
+            budget_usd: budget,
+            quantity,
+            sla_threshold: createdOrder.slaThreshold
+          })
+        });
 
-          let sampleOutput: any = null;
-          if (agentCat === 'finance') {
-            sampleOutput = {
-              status: 'completed',
-              variance_analysis: {
-                target_metric: 'Variance & Audit Ledger',
-                observed_delta: '+6.2%',
-                risk_evaluation: 'Low Risk (Nominal)',
-                settlement_ready: true
-              },
-              summary: `Financial intelligence audit finalized for: "${desc}". SEC guidelines and baseline budgets validated.`,
-              score: 0.98
-            };
-          } else if (agentCat === 'web3') {
-            sampleOutput = {
-              status: 'completed',
-              contract_audit: {
-                target: desc,
-                reentrancy_sentinel: 'PASS',
-                overflow_protection: 'PASS',
-                gas_optimization_ratio: '16.8%'
-              },
-              summary: `Smart contract verification passed on EVM network. Zero vulnerabilities found.`,
-              score: 0.99
-            };
-          } else if (agentCat === 'creative') {
-            sampleOutput = {
-              corrected: `Refined marketing messaging and GTM narrative based on brief: "${desc}". Streamlined for international web3 and developer ecosystems.`,
-              score: 0.96,
-              issues: [
-                { type: 'clarity', original: 'early access', suggestion: 'Genesis 0% Platform Commission', reason: 'Stronger conversion incentive' },
-                { type: 'tone', original: 'contact us', suggestion: 'Join Sovereign Network', reason: 'Align with decentralized positioning' }
-              ]
-            };
-          } else {
-            sampleOutput = {
-              status: 'completed',
-              task_id: orderId,
-              agent_id: agentId,
-              execution_result: {
-                action: 'dispatch_job',
-                payload_processed: desc,
-                exit_code: 0,
-                duration_ms: 164
-              },
-              summary: `Task executed successfully via ACP 2.0 Fallback Gateway. Output verified and sealed.`,
-              score: 1.0
-            };
-          }
-
-          acpData = {
-            success: true,
-            output: sampleOutput,
-            meta: {
-              task_id: orderId,
-              latency_ms: 164,
-              engine: 'ACP-2.0-Fallback-Engine',
-              delivered_at: nowIso
+        if (!acpResp.ok) {
+          isExecutionSuccess = false;
+          let errCode = 'ACP_DISPATCH_FAILED';
+          let errMsg = `Execution failed with HTTP status ${acpResp.status}`;
+          let isRetryable = false;
+          try {
+            const errJson = await acpResp.json();
+            if (errJson?.error) {
+              errCode = errJson.error.code || errCode;
+              errMsg = errJson.error.message || errMsg;
+              isRetryable = !!errJson.error.retryable;
             }
-          };
+          } catch {}
 
-          // Register deliverable in task ledger
-          await deliverTaskResult(orderId, sampleOutput);
+          if (resultMetaEl) resultMetaEl.textContent = `Status: ${acpResp.status} (Failed)`;
+          if (resultTimestampEl) resultTimestampEl.textContent = `Timestamp: ${new Date().toLocaleTimeString()}`;
+          if (resultContentEl) {
+            resultContentEl.innerHTML = `
+              <div class="p-4 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-200 text-xs space-y-2">
+                <div class="flex items-center gap-2 text-rose-400 font-bold">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                  <span>${escapeHtml(errCode)}</span>
+                </div>
+                <p class="font-mono text-[11px] leading-relaxed">${escapeHtml(errMsg)}</p>
+                <p class="text-slate-400 text-[10px]">Order #${escapeHtml(orderId)} was recorded in ledger. ${isRetryable ? 'This error is transient and can be retried.' : 'Autonomous execution could not proceed without authorization or required runner.'}</p>
+              </div>
+            `;
+          }
+        } else {
+          const acpData = await acpResp.json();
+          isExecutionSuccess = true;
+          const deliveredAt = (acpData.meta && acpData.meta.delivered_at) || new Date().toISOString();
+          const latency = (acpData.meta && acpData.meta.latency_ms) || '0';
+
+          if (resultMetaEl) resultMetaEl.textContent = `Latency: ${latency}ms (ACP 2.0 Engine)`;
+          if (resultTimestampEl) resultTimestampEl.textContent = `Delivered: ${new Date(deliveredAt).toLocaleTimeString()}`;
+
+          const rendered = renderAcpExecutionOutput(acpData);
+          lastRawOutput = rendered.rawOutput;
+          if (resultContentEl) {
+            resultContentEl.innerHTML = rendered.html;
+          }
         }
-
-        const deliveredAt = (acpData.meta && acpData.meta.delivered_at) || new Date().toISOString();
-        const latency = (acpData.meta && acpData.meta.latency_ms) || '164';
-
-        if (resultMetaEl) resultMetaEl.textContent = `Latency: ${latency}ms (ACP 2.0 Engine)`;
-        if (resultTimestampEl) resultTimestampEl.textContent = `Delivered: ${new Date(deliveredAt).toLocaleTimeString()}`;
-
-        const rendered = renderAcpExecutionOutput(acpData);
-        lastRawOutput = rendered.rawOutput;
+      } catch (acpErr: any) {
+        isExecutionSuccess = false;
+        if (resultMetaEl) resultMetaEl.textContent = 'Status: Network Error';
         if (resultContentEl) {
-          resultContentEl.innerHTML = rendered.html;
+          resultContentEl.innerHTML = `
+            <div class="p-4 rounded-xl bg-amber-950/40 border border-amber-500/30 text-amber-200 text-xs space-y-2">
+              <p class="font-bold text-amber-400">Dispatch Network Exception</p>
+              <p class="font-mono text-[11px]">${escapeHtml(acpErr?.message || 'Failed to connect to ACP dispatch gateway.')}</p>
+              <p class="text-slate-400 text-[10px]">Order #${escapeHtml(orderId)} was logged in Supabase. Check connectivity and retry.</p>
+            </div>
+          `;
         }
-      } catch (acpErr) {
-        if (resultContentEl) {
-          resultContentEl.innerHTML = `<div class="p-3 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 text-xs"><p class="font-bold text-emerald-400 mb-1">Task Logged Successfully</p><p>Order #${orderId} received and queued in Supabase ledger.</p></div>`;
+      }
+
+      // Configure Result View state depending on execution success
+      if (isExecutionSuccess) {
+        if (resultHeadingEl) resultHeadingEl.textContent = 'Task Delivered & Logged!';
+        if (resultSubheadingEl) {
+          resultSubheadingEl.innerHTML = `Order <span id="hire-order-id" class="font-mono text-emerald-400 font-bold">#${escapeHtml(orderId)}</span> verified via ACP 2.0 network.`;
         }
+        if (resultStatusIconEl) {
+          resultStatusIconEl.className = 'w-12 h-12 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto';
+          resultStatusIconEl.innerHTML = '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" /></svg>';
+        }
+        if (resultStatusTagEl) {
+          resultStatusTagEl.className = 'flex items-center gap-1.5 text-emerald-400 font-semibold';
+          resultStatusTagEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span><span>Live Result Verified</span>';
+        }
+        if (reconcileCardEl) reconcileCardEl.classList.remove('hidden');
+        if (btnCopyResult) btnCopyResult.classList.remove('hidden');
+        if (btnDoneHire) btnDoneHire.textContent = 'Done';
+      } else {
+        if (resultHeadingEl) resultHeadingEl.textContent = 'Task Execution Failed';
+        if (resultSubheadingEl) {
+          resultSubheadingEl.innerHTML = `Order <span id="hire-order-id" class="font-mono text-rose-400 font-bold">#${escapeHtml(orderId)}</span> recorded in ledger, but dispatch could not complete.`;
+        }
+        if (resultStatusIconEl) {
+          resultStatusIconEl.className = 'w-12 h-12 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400 flex items-center justify-center mx-auto';
+          resultStatusIconEl.innerHTML = '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>';
+        }
+        if (resultStatusTagEl) {
+          resultStatusTagEl.className = 'flex items-center gap-1.5 text-rose-400 font-semibold';
+          resultStatusTagEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-rose-500"></span><span>Execution Failed</span>';
+        }
+        if (reconcileCardEl) reconcileCardEl.classList.add('hidden');
+        if (btnCopyResult) btnCopyResult.classList.add('hidden');
+        if (btnDoneHire) btnDoneHire.textContent = 'Close & View in Orders Drawer';
       }
 
       if (btnCopyResult) {
@@ -463,8 +482,8 @@ export function initHireModal(): void {
       
       const orderIdEl = document.getElementById('hire-order-id');
       if (orderIdEl) {
-        if (onChainTxHash) {
-          orderIdEl.innerHTML = `#${orderId} · <a href="https://sepolia.etherscan.io/tx/${onChainTxHash}" target="_blank" rel="noopener noreferrer" class="underline hover:text-emerald-300 font-mono text-[11px] text-emerald-400 inline-flex items-center gap-1">Tx: ${onChainTxHash.substring(0, 10)}... [Tx Link]</a>`;
+        if (onChainTxHash && /^0x[0-9a-fA-F]{64}$/.test(onChainTxHash)) {
+          orderIdEl.innerHTML = `#${escapeHtml(orderId)} · <a href="https://sepolia.etherscan.io/tx/${encodeURIComponent(onChainTxHash)}" target="_blank" rel="noopener noreferrer" class="underline hover:text-emerald-300 font-mono text-[11px] text-emerald-400 inline-flex items-center gap-1">Tx: ${escapeHtml(onChainTxHash.substring(0, 10))}... [Tx Link]</a>`;
         } else {
           orderIdEl.textContent = `#${orderId}${currentSettlementMode === 'web3' ? ' (On-Chain Signed)' : ''}`;
         }

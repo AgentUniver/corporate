@@ -5,7 +5,8 @@ export type TaskOrderStatus =
   | 'delivered'
   | 'verified'
   | 'disputed'
-  | 'refunded';
+  | 'refunded'
+  | 'failed';
 
 export type PayoutRailType = 
   | 'fiat_stripe'
@@ -23,6 +24,7 @@ export interface PayoutPreference {
 export interface TaskOrder {
   id: string;
   agentId: string;
+  agent_slug?: string;
   agentName: string;
   subdomain: string;
   taskTitle: string;
@@ -41,6 +43,7 @@ export interface TaskOrder {
   slaThreshold?: string;
   disputeReason?: string;
   updatedAt?: string;
+  taskToken?: string;
   // Dynamic Quotation & Estimate Fields
   estimatedComputeUsd?: number;
   estimatedLoopSteps?: number;
@@ -58,7 +61,7 @@ export interface TaskOrder {
   // Global Dual-Rail Payout & Clearing Fields
   payoutRail?: PayoutRailType;
   payoutAddress?: string;
-  payoutStatus?: 'pending' | 'escrowed' | 'settled' | 'failed';
+  payoutStatus?: 'pending' | 'escrowed' | 'settled' | 'refunded' | 'failed';
   payoutTxHash?: string;
   // Phase 5: Automated Arbitration & Deliverable Schema Fingerprint
   deliverableFingerprint?: {
@@ -112,6 +115,6 @@ export interface OrderAccountingLedger {
   netProviderPayoutUsd: number;
   payoutRail: PayoutRailType;
   payoutAddress: string;
-  payoutStatus: 'pending' | 'escrowed' | 'settled' | 'failed';
+  payoutStatus: 'pending' | 'escrowed' | 'settled' | 'refunded' | 'failed';
   reconciledAt: string;
 }

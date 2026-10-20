@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'http';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseClient } from '../_supabase';
 
 interface VercelRequest extends IncomingMessage {
   query: Record<string, string | string[]>;
@@ -11,86 +11,96 @@ interface VercelResponse extends ServerResponse {
   json: (data: any) => VercelResponse;
 }
 
-const ACTIVE_PROJECT_REF = 'rorfuxoelnylsvpinzbo';
-const DEFAULT_SUPABASE_URL = 'https://rorfuxoelnylsvpinzbo.supabase.co';
-const DEFAULT_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvcmZ1eG9lbG55bHN2cGluemJvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0MTk2NDgsImV4cCI6MjEwNTk5NTY0OH0.RM4q_An173aCA0uT5Msw709FcMDm78JD2tdBiY0DP84';
-
-function getSanitizedSupabaseUrl(rawUrl?: string): string {
-  if (!rawUrl) return DEFAULT_SUPABASE_URL;
-  let url = rawUrl.trim();
-  if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    url = 'https://' + url;
-  }
-  url = url.replace('https://db.', 'https://');
-  if (url.includes('lbkhvciymyzzjijuhbri')) {
-    url = url.replace('lbkhvciymyzzjijuhbri', ACTIVE_PROJECT_REF);
-  }
-  try {
-    new URL(url);
-    return url;
-  } catch {
-    return DEFAULT_SUPABASE_URL;
-  }
-}
-
-let _supabaseClient: any = null;
-function getSupabaseClient() {
-  if (_supabaseClient) return _supabaseClient;
-
-  const rawUrl = process.env.SUPABASE_URL || process.env.PUBLIC_SUPABASE_URL;
-  const cleanUrl = getSanitizedSupabaseUrl(rawUrl);
-
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SERVICE_KEY ||
-    process.env.SUPABASE_KEY ||
-    process.env.SUPABASE_ANON_KEY ||
-    process.env.PUBLIC_SUPABASE_ANON_KEY ||
-    DEFAULT_SUPABASE_KEY;
-
-  if (!cleanUrl || !key) return null;
-
-  try {
-    _supabaseClient = createClient(cleanUrl, key, {
-      auth: { persistSession: false }
-    });
-    return _supabaseClient;
-  } catch (err) {
-    console.warn('[Supabase] Failed to initialize client safely:', err);
-    return null;
-  }
-}
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, ACP-Key, ACP-Version, Authorization, X-Task-Token');
+  res.setHeader('ACP-Version', '2.0');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
   if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    res.setHeader('Allow', 'GET, OPTIONS');
+    return res.status(405).json({ success: false, error: { code: 'ACP_METHOD_NOT_ALLOWED', message: 'Method not allowed' } });
   }
 
   const taskId = (req.query.task_id as string) || '';
+  if (!taskId) {
+    return res.status(400).json({ success: false, error: { code: 'ACP_INVALID_TASK_ID', message: 'Missing task_id' } });
+  }
+
   const supabase = getSupabaseClient();
   if (!supabase) {
-    return res.status(503).json({ success: false, error: 'Database service unavailable' });
+    return res.status(503).json({ success: false, error: { code: 'ACP_DB_UNAVAILABLE', message: 'Database service unavailable' } });
+  }
+
+  // Dual-track authentication check (P0-3 Hardened)
+  const internalKey = (process.env.ACP_INTERNAL_KEY || '').trim();
+  const acpKey = (req.headers['acp-key'] as string) || '';
+  const authHeader = (req.headers['authorization'] as string) || '';
+  // Token must only be supplied via secure header, never query string
+  const taskToken = (req.headers['x-task-token'] as string) || '';
+  let authorized = false;
+
+  if (internalKey) {
+    if (acpKey && acpKey === internalKey) {
+      authorized = true;
+    } else if (authHeader.startsWith('Bearer ')) {
+      const token = authHeader.slice(7).trim();
+      if (token === internalKey) {
+        authorized = true;
+      }
+    }
   }
 
   try {
-    const { data, error } = await supabase.from('agent_tasks').select('*').eq('id', taskId).single();
-    if (error || !data) {
-      return res.status(404).json({ success: false, error: 'Task not found' });
+    // Whitelist task fields to avoid leaking PII (emails, payout credentials)
+    const { data, error } = await supabase
+      .from('agent_tasks')
+      .select('id, agent_slug, agentId, status, resultPayload, deliverableFingerprint, deliveredAt, createdAt, taskToken')
+      .eq('id', taskId)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return res.status(404).json({ success: false, error: { code: 'ACP_TASK_NOT_FOUND', message: 'Task not found' } });
+      }
+      return res.status(503).json({ success: false, error: { code: 'ACP_DB_ERROR', message: error.message || 'Database query failure' } });
+    }
+
+    if (!data) {
+      return res.status(404).json({ success: false, error: { code: 'ACP_TASK_NOT_FOUND', message: 'Task not found' } });
+    }
+
+    // Verify taskToken if not authorized by internal service key (strict equality)
+    if (!authorized) {
+      if (taskToken && typeof data.taskToken === 'string' && data.taskToken.length >= 10 && data.taskToken === taskToken) {
+        authorized = true;
+      }
+    }
+
+    if (!authorized) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'ACP_AUTH_FAILED', message: 'Invalid or missing authorization credentials' }
+      });
     }
 
     return res.status(200).json({
       success: true,
-      task: data
+      task: {
+        id: data.id,
+        agent_slug: data.agent_slug || (data as any).agentId || null,
+        status: data.status,
+        resultPayload: data.resultPayload,
+        deliverable_fingerprint: data.deliverableFingerprint,
+        deliveredAt: data.deliveredAt,
+        createdAt: data.createdAt
+      }
     });
   } catch (err: any) {
-    return res.status(500).json({ success: false, error: err?.message || 'Database query error' });
+    return res.status(503).json({ success: false, error: { code: 'ACP_DB_ERROR', message: err?.message || 'Database query error' } });
   }
 }

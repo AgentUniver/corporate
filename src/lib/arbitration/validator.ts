@@ -5,25 +5,35 @@ import type { TaskOrder } from '../supabase/types';
  */
 export async function computeSha256(data: string | object): Promise<string> {
   const content = typeof data === 'string' ? data : JSON.stringify(data);
-  if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
+
+  // 1. Web Cryptography API (modern browsers & Node 18+ globalThis.crypto)
+  const subtleCrypto = (typeof globalThis !== 'undefined' && globalThis.crypto && globalThis.crypto.subtle)
+    ? globalThis.crypto.subtle
+    : (typeof window !== 'undefined' && window.crypto && window.crypto.subtle ? window.crypto.subtle : null);
+
+  if (subtleCrypto) {
     try {
       const msgBuffer = new TextEncoder().encode(content);
-      const hashBuffer = await window.crypto.subtle.digest('SHA-256', msgBuffer);
+      const hashBuffer = await subtleCrypto.digest('SHA-256', msgBuffer);
       const hashArray = Array.from(new Uint8Array(hashBuffer));
       return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
     } catch {
-      // Fall through to deterministic fallback
+      // Fall through to Node crypto
     }
   }
 
-  // Deterministic fast hash fallback
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < content.length; i++) {
-    hash ^= content.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
+  // 2. Node.js native crypto module fallback
+  try {
+    const nodeCrypto = await import('crypto');
+    if (nodeCrypto && (nodeCrypto as any).createHash) {
+      return (nodeCrypto as any).createHash('sha256').update(content).digest('hex');
+    }
+  } catch {
+    // Fall through
   }
-  const hex = (hash >>> 0).toString(16).padStart(8, '0');
-  return `sha256_mock_${hex}_${content.length}b`;
+
+  // 3. Fail-closed: Never return mock hash as sha256 declaration
+  throw new Error('ACP_CRYPTO_UNAVAILABLE: Standard SHA-256 cryptographic provider is not available in current environment');
 }
 
 export interface SchemaValidationReport {
@@ -41,13 +51,13 @@ export interface SchemaValidationReport {
 export async function validateDeliverableSchema(
   payload: any,
   requiredQuantity?: number,
-  slaThreshold?: string
+  _slaThreshold?: string
 ): Promise<SchemaValidationReport> {
   const errors: string[] = [];
   let recordCount = 0;
   let integrityScore = 100;
 
-  if (!payload || (typeof payload !== 'object' && typeof payload !== 'string')) {
+  if (payload === null || payload === undefined || (typeof payload !== 'object' && typeof payload !== 'string')) {
     return {
       valid: false,
       sha256Checksum: '0'.repeat(64),
@@ -60,14 +70,21 @@ export async function validateDeliverableSchema(
 
   const checksum = await computeSha256(payload);
 
-  if (Array.isArray(payload)) {
+  if (typeof payload === 'string') {
+    if (!payload.trim()) {
+      errors.push('String payload is empty');
+      integrityScore = 0;
+    } else {
+      recordCount = 1;
+    }
+  } else if (Array.isArray(payload)) {
     recordCount = payload.length;
     if (recordCount === 0) {
       errors.push('Array payload contains 0 records');
       integrityScore = 0;
     } else {
       let emptyFieldCount = 0;
-      payload.forEach((item, index) => {
+      payload.forEach((item) => {
         if (typeof item === 'object' && item !== null) {
           const keys = Object.keys(item);
           if (keys.length === 0) emptyFieldCount++;
@@ -82,14 +99,44 @@ export async function validateDeliverableSchema(
       }
     }
   } else if (typeof payload === 'object') {
-    recordCount = payload.verifiedCount || payload.quantity || 1;
-    if (payload.status === 'ERROR' || payload.error) {
-      errors.push(`Payload payload error flag: ${payload.error || 'ERROR status'}`);
-      integrityScore = 20;
-    }
-    if (!payload.dataDeliverySample && !payload.verifiedCount && Object.keys(payload).length <= 1) {
-      errors.push('Payload schema lacks deliverable body or records');
-      integrityScore = 40;
+    const keys = Object.keys(payload);
+    if (keys.length === 0) {
+      errors.push('Object payload is completely empty ({})');
+      integrityScore = 0;
+    } else if (payload.status === 'ERROR' || payload.error) {
+      errors.push(`Payload error flag: ${payload.error || 'ERROR status'}`);
+      integrityScore = 0;
+    } else {
+      if (payload.verifiedCount !== undefined) {
+        if (typeof payload.verifiedCount !== 'number' || !Number.isInteger(payload.verifiedCount) || payload.verifiedCount < 0) {
+          errors.push('verifiedCount must be a non-negative integer');
+          integrityScore = 0;
+        } else {
+          recordCount = payload.verifiedCount;
+        }
+      } else if (typeof payload.quantity === 'number' && Number.isInteger(payload.quantity) && payload.quantity >= 0) {
+        recordCount = payload.quantity;
+      } else {
+        recordCount = 1;
+      }
+
+      const hasContractField = Boolean(
+        (typeof payload.corrected === 'string' && payload.corrected.trim().length > 0) ||
+        (Array.isArray(payload.issues) && payload.issues.length > 0) ||
+        (typeof payload.dataDeliverySample === 'string' && payload.dataDeliverySample.trim().length > 0) ||
+        (typeof payload.repo === 'string' && payload.repo.trim().length > 0 && typeof payload.radar === 'object' && payload.radar !== null && Object.keys(payload.radar).length > 0) ||
+        (typeof payload.output === 'string' && payload.output.trim().length > 0) ||
+        (typeof payload.output === 'object' && payload.output !== null && Object.keys(payload.output).length > 0) ||
+        (typeof payload.result === 'string' && payload.result.trim().length > 0) ||
+        (typeof payload.result === 'object' && payload.result !== null && Object.keys(payload.result).length > 0) ||
+        (typeof payload.data === 'string' && payload.data.trim().length > 0) ||
+        (typeof payload.data === 'object' && payload.data !== null && Object.keys(payload.data).length > 0)
+      );
+
+      if (!hasContractField) {
+        errors.push('Payload schema lacks non-empty deliverable contract fields (corrected, issues, dataDeliverySample, repo/radar, output, result, or data)');
+        integrityScore = 0;
+      }
     }
   }
 
@@ -98,10 +145,11 @@ export async function validateDeliverableSchema(
     integrityScore = Math.round(integrityScore * (recordCount / requiredQuantity));
   }
 
+  const valid = integrityScore >= 60 && errors.length === 0;
   const slaConformant = integrityScore >= 80 && errors.length === 0;
 
   return {
-    valid: integrityScore >= 60,
+    valid,
     sha256Checksum: checksum,
     verifiedCount: recordCount,
     integrityScore,
@@ -135,8 +183,6 @@ export async function evaluateDisputeArbitration(
     order.quantity,
     order.slaThreshold
   );
-
-  const reasonLower = buyerReason.toLowerCase();
 
   // 1. 若履约交付物不存在或格式严重损坏
   if (!order.resultPayload || report.integrityScore < 50) {

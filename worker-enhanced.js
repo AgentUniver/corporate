@@ -9,120 +9,30 @@ addEventListener('fetch', event => {
 
 async function handleRequest(request) {
   const url = new URL(request.url);
-  let path = url.pathname + url.search;
-
-  // Direct Edge Handler for RepoPulse: /api/v1/acp/repo-audit
-  if (url.pathname === '/api/v1/acp/repo-audit') {
-    if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        status: 204,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization, ACP-Key'
-        }
-      });
-    }
-
-    if (request.method === 'POST') {
-      try {
-        const body = await request.json().catch(() => ({}));
-        let repoTarget = (typeof body === 'string' ? body : (body?.repo || body?.url || '')).trim();
-        repoTarget = repoTarget.replace(/^https?:\/\/github\.com\//i, '').replace(/\/$/, '').replace(/\.git$/i, '');
-        const parts = repoTarget.split('/');
-        const owner = parts[0] || 'AgentUniver';
-        const repo = parts[1] || 'corporate';
-        const fullName = `${owner}/${repo}`;
-
-        let repoMeta = null;
-        let readmeSnippet = '';
-        try {
-          const ghRes = await fetch(`https://api.github.com/repos/${fullName}`, {
-            headers: { 'User-Agent': 'AgentUniver-RepoPulse/2.0' }
-          });
-          if (ghRes.ok) repoMeta = await ghRes.json();
-
-          const rdRes = await fetch(`https://api.github.com/repos/${fullName}/readme`, {
-            headers: { 'User-Agent': 'AgentUniver-RepoPulse/2.0' }
-          });
-          if (rdRes.ok) {
-            const rdData = await rdRes.json();
-            if (rdData?.content) {
-              readmeSnippet = atob(rdData.content.replace(/\n/g, '')).slice(0, 3000);
-            }
-          }
-        } catch (e) {}
-
-        const stars = repoMeta?.stargazers_count ?? 320;
-        const hasLicense = Boolean(repoMeta?.license);
-        const score = Math.min(98, Math.max(78, 82 + (stars > 500 ? 8 : stars > 50 ? 4 : 0) + (hasLicense ? 4 : 0)));
-        const grade = score >= 94 ? 'A+' : score >= 88 ? 'A' : score >= 82 ? 'A-' : 'B+';
-
-        const result = {
-          repo: fullName,
-          stars: stars,
-          language: repoMeta?.language || 'TypeScript',
-          grade: grade,
-          health_score: score,
-          radar: {
-            modularity: Math.min(100, score - 2),
-            security: Math.min(100, score - 6),
-            documentation: readmeSnippet.length > 300 ? 94 : 78,
-            agent_readiness: Math.min(100, score + 2),
-            maintainability: score - 4
-          },
-          summary: `${fullName} exhibits clean modern engineering with disciplined ${repoMeta?.language || 'modular'} packaging. The codebase presents well-defined interface boundaries, making it primed for autonomous agent orchestration under ACP 2.0.`,
-          strengths: [
-            `High-cohesion module encapsulation in ${repoMeta?.language || 'modern stack'}`,
-            hasLicense ? 'Clear permissive open-source license and contribution surface' : 'Well-defined root configuration and dependency manifest',
-            'Transparent directory hierarchy optimized for LLM context window ingestion'
-          ],
-          smells: [
-            { title: 'Implicit Contract Coupling', severity: 'Medium', suggestion: 'Introduce explicit interface schemas or OpenAPI/Zod specs for cross-module invocations.' },
-            { title: 'Dual-Rail Security Gate Missing', severity: 'Low', suggestion: 'Equip CI/CD workflows with automated security gate replay and secret guardrails.' },
-            { title: 'Test Branch Coverage Visibility', severity: 'Low', suggestion: 'Expose automated test coverage badges to accelerate AI agent test verification.' }
-          ],
-          agent_readiness_verdict: `Rated ${grade} for autonomous agent pairing. Autonomous agents can parse repository AST in <30s and execute verified PRs via ACP protocol.`,
-          recommended_agents: [
-            { name: 'Architecture Reviewer Agent', role: 'Auto-scan code smells and generate ADR records', slug: 'grammar-proofreader' },
-            { name: 'Dual-Rail Test Synthesizer', role: 'Produce 100% branch test coverage before PR merge', slug: 'grammar-proofreader' }
-          ]
-        };
-
-        return new Response(JSON.stringify(result), {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization, ACP-Key'
-          }
-        });
-      } catch (err) {
-        return new Response(JSON.stringify({ error: err.message }), {
-          status: 500,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-        });
-      }
-    }
-  }
+  // Normalize pathname to prevent leading double slash SSRF vulnerabilities
+  const cleanPathname = '/' + url.pathname.replace(/^\/+/, '');
+  let path = cleanPathname + url.search;
 
   // Transparently map audit.agentuniver.com subdomain to /audit
   if (url.hostname === 'audit.agentuniver.com') {
-    if (url.pathname === '/' || url.pathname === '') {
+    if (cleanPathname === '/' || cleanPathname === '') {
       path = '/audit' + url.search;
-    } else if (!url.pathname.startsWith('/audit') && !url.pathname.startsWith('/api/')) {
-      path = '/audit' + url.pathname + url.search;
+    } else if (!cleanPathname.startsWith('/audit') && !cleanPathname.startsWith('/api/')) {
+      path = '/audit' + cleanPathname + url.search;
     }
   }
 
+  const isApiRequest = cleanPathname.startsWith('/api/');
   const PRIMARY = typeof PRIMARY_ORIGIN !== 'undefined' ? PRIMARY_ORIGIN : 'https://www.agentuniver.com';
   const SECONDARY = typeof SECONDARY_ORIGIN !== 'undefined' ? SECONDARY_ORIGIN : 'https://agentuniver.netlify.app';
 
-  const origins = [
-    { url: PRIMARY, host: 'www.agentuniver.com', name: 'vercel' },
-    { url: SECONDARY, host: 'agentuniver.netlify.app', name: 'netlify' }
-  ];
+  // For API requests, only route to origins that host backend functions
+  const origins = isApiRequest
+    ? [{ url: PRIMARY, host: 'www.agentuniver.com', name: 'vercel' }]
+    : [
+        { url: PRIMARY, host: 'www.agentuniver.com', name: 'vercel' },
+        { url: SECONDARY, host: 'agentuniver.netlify.app', name: 'netlify' }
+      ];
 
   for (let i = 0; i < origins.length; i++) {
     const origin = origins[i];
@@ -135,7 +45,14 @@ async function handleRequest(request) {
 
       const response = await fetch(originReq);
 
-      if (response.ok || response.status === 304 || (response.status >= 300 && response.status < 400)) {
+      // Pass through all 2xx, 3xx and 4xx responses without triggering failover
+      if (response.status < 500) {
+        // Guard against secondary static hosting returning 404 HTML for API requests
+        const contentType = response.headers.get('content-type') || '';
+        if (isApiRequest && response.status === 404 && contentType.includes('text/html')) {
+          continue; // Trigger failover or gateway fallback
+        }
+
         const newHeaders = new Headers(response.headers);
         newHeaders.set('X-Edge-Origin', origin.name);
         return new Response(response.body, {
@@ -145,12 +62,11 @@ async function handleRequest(request) {
         });
       }
     } catch (e) {
-      // Failover to next origin
+      // Failover to next origin on network exception
     }
   }
 
   // Fallback when all edge origins are unavailable
-  const isApiRequest = url.pathname.startsWith('/api/');
   if (isApiRequest) {
     return new Response(JSON.stringify({
       status: "degraded",

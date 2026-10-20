@@ -5,6 +5,7 @@ import {
   deliverTaskResult,
   refundDisputedOrder
 } from '../supabase';
+import { escapeHtml } from '../utils/sanitize';
 
 export function setupOrdersDrawer() {
   const drawer = document.getElementById('orders-drawer');
@@ -79,9 +80,12 @@ export function setupOrdersDrawer() {
         } else if (order.status === 'processing') {
           statusBadgeClass = 'bg-blue-500/10 text-blue-400 border-blue-500/30';
           statusLabel = 'PROCESSING';
-        } else if (order.status === 'delivered') {
+        } else if (order.status === 'delivered' || (order.status as string) === 'completed') {
           statusBadgeClass = 'bg-purple-500/10 text-purple-300 border-purple-500/30';
           statusLabel = 'DELIVERED (PENDING REVIEW)';
+        } else if (order.status === 'failed') {
+          statusBadgeClass = 'bg-rose-500/10 text-rose-400 border-rose-500/30';
+          statusLabel = 'EXECUTION FAILED';
         } else if (order.status === 'verified') {
           statusBadgeClass = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
           statusLabel = 'VERIFIED & SETTLED';
@@ -98,13 +102,13 @@ export function setupOrdersDrawer() {
             <div class="flex items-start justify-between gap-2">
               <div>
                 <div class="flex items-center gap-2">
-                  <span class="font-bold text-white text-sm">${order.agentName || 'Autonomous Agent'}</span>
+                  <span class="font-bold text-white text-sm">${escapeHtml(order.agentName || 'Autonomous Agent')}</span>
                   <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${statusBadgeClass} border">
                     ${statusLabel}
                   </span>
                 </div>
                 <div class="text-[11px] text-slate-400 font-mono mt-0.5">
-                  Order ID: ${order.id} • ${new Date(order.createdAt).toLocaleString()}
+                  Order ID: ${escapeHtml(order.id)} • ${escapeHtml(new Date(order.createdAt).toLocaleString())}
                 </div>
               </div>
               <div class="text-right flex-shrink-0">
@@ -116,7 +120,7 @@ export function setupOrdersDrawer() {
             <div class="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800 text-xs space-y-1">
               <div class="flex justify-between text-slate-400 text-[11px]">
                 <span>Scope / Volume:</span>
-                <span class="font-semibold text-slate-200">${volumeText}</span>
+                <span class="font-semibold text-slate-200">${escapeHtml(volumeText)}</span>
               </div>
               ${order.priceCeilingUsd ? `
                 <div class="flex justify-between text-slate-400 text-[11px]">
@@ -133,11 +137,11 @@ export function setupOrdersDrawer() {
               ${order.slaThreshold ? `
                 <div class="flex justify-between text-slate-400 text-[11px]">
                   <span>SLA Guarantee:</span>
-                  <span class="text-cyan-300 font-mono">${order.slaThreshold}</span>
+                  <span class="text-cyan-300 font-mono">${escapeHtml(order.slaThreshold)}</span>
                 </div>
               ` : ''}
               <div class="text-slate-300 text-[11px] pt-1 border-t border-slate-800 truncate">
-                Prompt/Spec: ${order.taskDescription || 'Standard parameters'}
+                Prompt/Spec: ${escapeHtml(order.taskDescription || 'Standard parameters')}
               </div>
             </div>
 
@@ -145,10 +149,10 @@ export function setupOrdersDrawer() {
               <div class="p-2 rounded-lg bg-emerald-950/20 border border-emerald-500/30 text-[11px] space-y-1">
                 <div class="flex items-center justify-between">
                   <span class="font-bold text-emerald-400">SHA-256 Verified Fingerprint</span>
-                  <span class="text-xs font-mono font-bold text-emerald-300">${order.deliverableFingerprint.integrityScore}/100 Score</span>
+                  <span class="text-xs font-mono font-bold text-emerald-300">${escapeHtml(Number.isFinite(Number(order.deliverableFingerprint.integrityScore)) ? Math.round(Number(order.deliverableFingerprint.integrityScore)) : 0)}/100 Score</span>
                 </div>
                 <div class="font-mono text-[10px] text-slate-400 truncate">
-                  Hash: ${order.deliverableFingerprint.sha256Checksum}
+                  Hash: ${escapeHtml(order.deliverableFingerprint.sha256Checksum)}
                 </div>
               </div>
             ` : ''}
@@ -156,7 +160,7 @@ export function setupOrdersDrawer() {
             ${order.disputeReason ? `
               <div class="p-2.5 rounded-lg bg-rose-950/30 border border-rose-800/50 text-[11px] text-rose-300 space-y-1">
                 <span class="font-bold block uppercase tracking-wider">Dispute Reason:</span>
-                <p>${order.disputeReason}</p>
+                <p>${escapeHtml(order.disputeReason)}</p>
               </div>
             ` : ''}
 
@@ -164,12 +168,12 @@ export function setupOrdersDrawer() {
               <div class="p-2.5 rounded-lg bg-indigo-950/40 border border-indigo-500/40 text-[11px] space-y-1.5">
                 <div class="flex items-center justify-between">
                   <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 uppercase">
-                    Arbitration: ${order.arbitrationVerdict.ruling.replace('_', ' ')}
+                    Arbitration: ${escapeHtml(order.arbitrationVerdict.ruling.replace('_', ' '))}
                   </span>
                   <span class="text-slate-400 font-mono text-[10px]">Confidence: ${Math.round(order.arbitrationVerdict.confidence * 100)}%</span>
                 </div>
-                <p class="text-slate-300 leading-relaxed">${order.arbitrationVerdict.rationale}</p>
-                <div class="text-[10px] font-mono text-slate-500 truncate">Evidence: ${order.arbitrationVerdict.evidenceHash}</div>
+                <p class="text-slate-300 leading-relaxed">${escapeHtml(order.arbitrationVerdict.rationale)}</p>
+                <div class="text-[10px] font-mono text-slate-500 truncate">Evidence: ${escapeHtml(order.arbitrationVerdict.evidenceHash)}</div>
               </div>
             ` : ''}
 
@@ -177,10 +181,10 @@ export function setupOrdersDrawer() {
               <div class="p-2.5 rounded-lg bg-purple-950/20 border border-purple-800/40 text-[11px] text-purple-300 space-y-1">
                 <div class="flex justify-between font-bold">
                   <span>Deliverable Result Payload:</span>
-                  <span class="text-emerald-400">${order.resultPayload.verifiedCount || order.quantity || 0} Units Ready</span>
+                  <span class="text-emerald-400">${escapeHtml((typeof order.resultPayload?.verifiedCount === 'number' && Number.isFinite(order.resultPayload.verifiedCount)) ? order.resultPayload.verifiedCount : ((typeof order.quantity === 'number' && Number.isFinite(order.quantity)) ? order.quantity : 0))} Units Ready</span>
                 </div>
                 <div class="text-slate-300 font-mono text-[10px] bg-slate-950/80 p-2 rounded max-h-24 overflow-y-auto">
-                  ${JSON.stringify(order.resultPayload, null, 2)}
+                  ${escapeHtml(JSON.stringify(order.resultPayload, null, 2))}
                 </div>
               </div>
             ` : ''}
@@ -190,34 +194,44 @@ export function setupOrdersDrawer() {
               ${(order.status === 'escrowed' || order.status === 'processing') ? `
                 <button 
                   data-action="simulate-delivery" 
-                  data-order-id="${order.id}" 
+                  data-order-id="${escapeHtml(order.id)}" 
                   class="px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 font-semibold text-[11px] transition cursor-pointer"
                 >
                   Deliver Results (Simulate)
                 </button>
               ` : ''}
 
-              ${order.status === 'delivered' ? `
+              ${(order.status === 'delivered' || (order.status as string) === 'completed') ? `
                 <button 
                   data-action="verify-order" 
-                  data-order-id="${order.id}" 
+                  data-order-id="${escapeHtml(order.id)}" 
                   class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-[11px] transition shadow-sm shadow-emerald-600/30 cursor-pointer"
                 >
                   Verify & Settle Escrow
                 </button>
                 <button 
                   data-action="dispute-order" 
-                  data-order-id="${order.id}" 
+                  data-order-id="${escapeHtml(order.id)}" 
                   class="px-3 py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 font-semibold text-[11px] transition cursor-pointer"
                 >
                   Raise SLA Dispute
                 </button>
               ` : ''}
 
+              ${order.status === 'failed' ? `
+                <button 
+                  data-action="refund-order" 
+                  data-order-id="${escapeHtml(order.id)}" 
+                  class="px-3 py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 font-semibold text-[11px] transition cursor-pointer"
+                >
+                  Cancel & Release Escrow
+                </button>
+              ` : ''}
+
               ${order.status === 'disputed' ? `
                 <button 
                   data-action="refund-order" 
-                  data-order-id="${order.id}" 
+                  data-order-id="${escapeHtml(order.id)}" 
                   class="px-3 py-1.5 rounded-lg bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 font-semibold text-[11px] transition cursor-pointer"
                 >
                   Release Refund to Client
@@ -283,13 +297,17 @@ export function setupOrdersDrawer() {
           if (!orderId) return;
 
           if (action === 'simulate-delivery') {
-            await deliverTaskResult(orderId, {
-              status: 'COMPLETED',
-              deliveredTimestamp: new Date().toISOString(),
-              verifiedCount: 500,
-              dataDeliverySample: 'Verified ICP Corporate Email & Authority Records Package ready for download.'
-            });
-            renderOrders();
+            try {
+              await deliverTaskResult(orderId, {
+                status: 'COMPLETED',
+                deliveredTimestamp: new Date().toISOString(),
+                verifiedCount: 500,
+                dataDeliverySample: 'Verified ICP Corporate Email & Authority Records Package ready for download.'
+              });
+              renderOrders();
+            } catch (delivErr: any) {
+              alert('Delivery failed: ' + (delivErr?.message || 'Server rejected delivery'));
+            }
           } else if (action === 'verify-order') {
             if (reviewInputOrderId) reviewInputOrderId.value = orderId;
             reviewGate?.classList.remove('hidden');
