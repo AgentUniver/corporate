@@ -30,6 +30,9 @@ importers:
         specifier: ^2.56.3
         version: 2.56.3(typescript@5.7.3)(zod@3.25.76)
     devDependencies:
+      '@electric-sql/pglite':
+        specifier: ^0.5.10
+        version: 0.5.10
       '@types/node':
         specifier: ^26.6.5
         version: 26.6.5
@@ -107,6 +110,9 @@ packages:
   '@capsizecss/unpack@4.0.1':
     resolution: {integrity: sha512-CuNiSqg7+e1cO/GjffyMOm5Tt2jUF9CWHHnvQ/UkqvtkGfHdgwEC0wpmq7fkN3gxwpRnrAN0WzO3vREKmNolMQ==}
     engines: {node: '>=18'}
+
+  '@electric-sql/pglite@0.5.10':
+    resolution: {integrity: sha512-tXc/25U3ulOkiRQuTFdwIv+JhBqtMdAF7Gvo6CfZZWtSB4+hgC4Wr2vwK5ngvvN5PJfAAEGIsfyCVy1JhCOBYw==}
 
   '@emmetio/abbreviation@2.3.3':
     resolution: {integrity: sha512-mgv58UrU3rh4YgbE/TzgLQwJ3pFsHHhCLqY20aJq+9comytTXUDNGG/SMtSeMJdkpxgXSXunBGLD8Boka3JyVA==}
@@ -2531,6 +2537,8 @@ snapshots:
   '@capsizecss/unpack@4.0.1':
     dependencies:
       fontkitten: 1.0.3
+
+  '@electric-sql/pglite@0.5.10': {}
 
   '@emmetio/abbreviation@2.3.3':
     dependencies:

@@ -146,6 +146,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const deliveredAt = new Date().toISOString();
+  const t1ReleaseAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
   // Validate deliverable schema and generate SHA-256 fingerprint (P0-2 Gate)
   const validation = await validateDeliverableSchema(output, targetQuantity, targetSla);
@@ -173,6 +174,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         resultPayload: output,
         deliverableFingerprint: deliverableFingerprint,
         deliveredAt: deliveredAt,
+        t1ReleaseAt: t1ReleaseAt,
         updatedAt: deliveredAt,
         version: nextVersion,
         ...(agent_slug && !existingTaskRecord.agent_slug && !existingTaskRecord.agentId ? { agent_slug, agentId: agent_slug } : {})

@@ -196,23 +196,56 @@ export function isValidUrl(v: any): boolean {
   }
 }
 
+/**
+ * 键序规范化序列化 (Claude Spec P0-1)
+ */
+export const canon = (v: any): string =>
+  Array.isArray(v)
+    ? '[' + v.map(canon).join(',') + ']'
+    : v && typeof v === 'object'
+    ? '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + canon(v[k])).join(',') + '}'
+    : JSON.stringify(v);
+
+/**
+ * 全数组重复占位项分析 (Claude Spec P1-4: 全数组 Map 频次统计，避免采样规避)
+ */
+function hasExcessiveDuplicates(arr: any[]): boolean {
+  if (!Array.isArray(arr) || arr.length < 10) return false;
+  const counts = new Map<string, number>();
+  let maxCount = 0;
+  for (const item of arr) {
+    const key = canon(item);
+    const count = (counts.get(key) || 0) + 1;
+    counts.set(key, count);
+    if (count > maxCount) maxCount = count;
+  }
+  return maxCount >= arr.length * 0.5;
+}
+
+function isIssueItem(item: any): boolean {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+  return 'severity' in item || 'rule' in item || 'type' in item;
+}
+
+function isValidIssueItem(item: any): boolean {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+  if (hasErrorFlag(item)) return false;
+  // 1. 包含实质性描述字段 (message/description/suggestion 等)
+  const descriptiveKeys = ['message', 'description', 'suggestion', 'reason', 'summary', 'detail', 'title'];
+  const hasSubstantiveTextContent = descriptiveKeys.some(k => isSubstantiveText(item[k], 3));
+  if (hasSubstantiveTextContent) return true;
+
+  // 2. 标准静态代码检查格式：包含 rule + severity + line/file (避免误杀结构化 linter 交付，P1-1)
+  if (item.rule && item.severity && (item.line !== undefined || item.file !== undefined)) {
+    return true;
+  }
+
+  return false;
+}
+
 function isValidIssueList(issues: any): boolean {
   if (!Array.isArray(issues) || issues.length === 0) return false;
-  return issues.every(item => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
-    if (hasErrorFlag(item)) return false;
-    // 1. 包含实质性描述字段 (message/description/suggestion 等)
-    const descriptiveKeys = ['message', 'description', 'suggestion', 'reason', 'summary', 'detail', 'title'];
-    const hasSubstantiveTextContent = descriptiveKeys.some(k => isSubstantiveText(item[k], 3));
-    if (hasSubstantiveTextContent) return true;
-
-    // 2. 标准静态代码检查格式：包含 rule + severity + line/file (避免误杀结构化 linter 交付，P1-1)
-    if (item.rule && item.severity && (item.line !== undefined || item.file !== undefined)) {
-      return true;
-    }
-
-    return false;
-  });
+  return issues.every(item => isValidIssueItem(item));
 }
 
 function isValidRadar(radar: any): boolean {
@@ -227,32 +260,51 @@ function isValidRadar(radar: any): boolean {
 /**
  * 校验结构化数据记录条目是否实质有效 (P0-1: 拒绝单纯元数据如 { value: 1 })
  */
-function isValidStructuredItem(item: any): boolean {
+function isValidStructuredItem(item: any, depth = 0): boolean {
   if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
   if (hasErrorFlag(item)) return false;
   const keys = Object.keys(item);
   if (keys.length === 0) return false;
 
   // 支持数值数据集条目如 { id: "metric-1", value: 42 } (避免误杀 legit 数据集，P1-1)
-  if (item.id !== undefined && typeof item.value === 'number' && Number.isFinite(item.value)) {
-    return true;
+  const isNumericDataset = item.id !== undefined && typeof item.value === 'number' && Number.isFinite(item.value);
+
+  if (!isNumericDataset) {
+    // Reject bare metadata objects like { value: 1 } or { id: 1 } without other context
+    const substantiveKeys = keys.filter(k => k !== 'id' && k !== 'index' && k !== 'type' && k !== 'value');
+    if (substantiveKeys.length === 0) return false;
+
+    // 必须包含至少一个实质内容字段且内容非占位符
+    const hasSubstantiveContent = keys.some(k => {
+      if (!CANONICAL_ITEM_CONTENT_KEYS.has(k)) return false;
+      const val = item[k];
+      if (typeof val === 'string') return isSubstantiveText(val, 2);
+      if (typeof val === 'number') return Number.isFinite(val) && val > 0 && k !== 'value';
+      if (typeof val === 'object' && val !== null) return isNonEmptyValue(val, 1);
+      return false;
+    });
+
+    if (!hasSubstantiveContent) return false;
   }
 
-  // Reject bare metadata objects like { value: 1 } or { id: 1 } without other context
-  const substantiveKeys = keys.filter(k => k !== 'id' && k !== 'index' && k !== 'type' && k !== 'value');
-  if (substantiveKeys.length === 0) return false;
+  // 深度集合防逃逸 (PI P0 & DSH P0): 若条目内部嵌套了任何空集合或非法条目，该条目自身亦判定无效
+  if (depth < 6) {
+    for (const [_, v] of Object.entries(item)) {
+      if (v && typeof v === 'object') {
+        const nestedInItem = extractAllCollectionArrays(v, depth + 1);
+        for (const rec of nestedInItem) {
+          if (rec.arr.length === 0 && !['error', 'errors', 'warning', 'warnings'].includes(rec.key || '')) {
+            return false;
+          }
+          if (rec.arr.some(subItem => !isValidCollectionItem(subItem, depth + 1))) {
+            return false;
+          }
+        }
+      }
+    }
+  }
 
-  // 必须包含至少一个实质内容字段且内容非占位符
-  const hasSubstantiveContent = keys.some(k => {
-    if (!CANONICAL_ITEM_CONTENT_KEYS.has(k)) return false;
-    const val = item[k];
-    if (typeof val === 'string') return isSubstantiveText(val, 2);
-    if (typeof val === 'number') return Number.isFinite(val) && val > 0 && k !== 'value';
-    if (typeof val === 'object' && val !== null) return isNonEmptyValue(val, 1);
-    return false;
-  });
-
-  return hasSubstantiveContent;
+  return true;
 }
 
 /**
@@ -280,22 +332,85 @@ function isValidMetricsObject(metrics: any): boolean {
 }
 
 /**
- * 提取对象内部的条目集合数组 (P0-2)
+ * 校验载荷对象嵌套深度是否在安全上限内 (Fail-closed 防御超深与循环引用逃逸)
  */
-function extractCollectionArray(obj: any): any[] | null {
-  if (!obj || typeof obj !== 'object') return null;
-  const collectionKeys = ['records', 'items', 'findings', 'issues', 'output', 'rows', 'data', 'results'];
-  for (const k of collectionKeys) {
-    if (Array.isArray(obj[k])) return obj[k];
+export function isWithinMaxDepth(
+  obj: any,
+  currentDepth = 0,
+  maxDepth = 6,
+  seen: WeakSet<object> = new WeakSet()
+): boolean {
+  if (currentDepth > maxDepth) return false;
+  if (!obj || typeof obj !== 'object') return true;
+  if (seen.has(obj)) return false;
+  seen.add(obj);
+
+  if (Array.isArray(obj)) {
+    return obj.every(item => isWithinMaxDepth(item, currentDepth + 1, maxDepth, seen));
   }
-  for (const wrapper of ['output', 'result', 'data']) {
-    if (obj[wrapper] && typeof obj[wrapper] === 'object' && !Array.isArray(obj[wrapper])) {
-      for (const k of collectionKeys) {
-        if (Array.isArray(obj[wrapper][k])) return obj[wrapper][k];
-      }
-    }
+  return Object.values(obj).every(val => isWithinMaxDepth(val, currentDepth + 1, maxDepth, seen));
+}
+
+interface ExtractedArrayRecord {
+  key?: string;
+  arr: any[];
+}
+
+/**
+ * 递归深度提取对象与数组内部的所有集合数组 (全路径遍历，数组与对象双向下探，深度上限 6，WeakSet 循环保护)
+ */
+function extractAllCollectionArrays(
+  obj: any,
+  depth = 0,
+  parentKey = '',
+  seen: WeakSet<object> = new WeakSet()
+): ExtractedArrayRecord[] {
+  if (depth > 6 || !obj || typeof obj !== 'object' || seen.has(obj)) return [];
+  seen.add(obj);
+
+  if (Array.isArray(obj)) {
+    const isPureStringList = obj.length > 0 && obj.every(x => typeof x === 'string');
+    const currentRecords: ExtractedArrayRecord[] = isPureStringList ? [] : [{ key: parentKey, arr: obj }];
+
+    // 关键闭环 (PI P0): 遍历数组内各个元素，继续深度提取元素内部再嵌套的集合数组！
+    const nestedInItems = obj.flatMap((item, idx) =>
+      extractAllCollectionArrays(item, depth + 1, parentKey ? `${parentKey}[${idx}]` : `item_${idx}`, seen)
+    );
+
+    return currentRecords.concat(nestedInItems);
   }
-  return null;
+  return Object.entries(obj).flatMap(([k, val]) =>
+    extractAllCollectionArrays(val, depth + 1, k, seen)
+  );
+}
+
+function isValidCollectionItem(item: any, depth = 0): boolean {
+  if (isIssueItem(item)) {
+    return isValidIssueItem(item);
+  }
+  return isValidStructuredItem(item, depth);
+}
+
+/**
+ * 抽取主条目集合数组 (基于 extractAllCollectionArrays 统一收口，只取通过 every(isSubstantive) 的合法集合)
+ */
+function extractCollectionArray(obj: any, depth = 0): any[] | null {
+  const all = extractAllCollectionArrays(obj, depth);
+  if (all.length === 0) return null;
+
+  // 严格只在通过实质性条目校验的数组中选取主交付集合 (Claude spec)
+  const validCollections = all.filter(record =>
+    record.arr.length > 0 && record.arr.every(item => isValidCollectionItem(item))
+  );
+
+  if (validCollections.length === 0) return null;
+
+  const preferredKeys = ['records', 'items', 'findings', 'issues', 'output', 'rows', 'data', 'results', 'deliverables', 'deliverable'];
+  for (const preferred of preferredKeys) {
+    const match = validCollections.find(e => e.key === preferred);
+    if (match) return match.arr;
+  }
+  return validCollections[0].arr;
 }
 
 /**
@@ -355,23 +470,61 @@ export function isValidDeliverablePayload(val: any, depth = 0): boolean {
       }
     }
 
-    // 若对象内包含条目集合，则集合内的每个元素必须全部合法，禁止局部非法（P0-1 消除 some 旁路）
-    const collectionKeys = ['records', 'items', 'findings', 'rows'];
-    for (const ck of collectionKeys) {
-      if (Array.isArray(val[ck])) {
-        if (val[ck].length === 0 || !val[ck].every(item => isValidStructuredItem(item))) {
+    // 深度集合数组安全防护 (P0-1 / C-1): 全局深度扫描包含的所有数组，存在任何空数组或坏项/空对象立即拒绝
+    const allNestedArrays = extractAllCollectionArrays(val);
+    for (const record of allNestedArrays) {
+      const arr = record.arr;
+      const parentKey = record.key || '';
+      if (arr.length === 0) {
+        if (['error', 'errors', 'warning', 'warnings'].includes(parentKey)) {
+          continue;
+        }
+        return false;
+      }
+      for (const item of arr) {
+        if (isIssueItem(item)) {
+          if (!isValidIssueItem(item)) return false;
+        } else if (!isValidStructuredItem(item)) {
           return false;
         }
       }
     }
-    if (val.issues && Array.isArray(val.issues)) {
-      if (val.issues.length === 0 || !isValidIssueList(val.issues)) {
-        return false;
+
+    // 消除兄弟键 short-circuit 短路旁路 (P0-1)：
+    // 显式提供的所有实质性键，如果有任何一个是无效的（例如嵌套了破损集合、错误标或空包装层），必须 Fail-closed 拒绝
+    for (const k of substantiveKeys) {
+      const v = val[k];
+      if (v === null || v === undefined) return false;
+      if (hasErrorFlag(v)) return false;
+
+      // 嵌套载荷包装层（deliverable, report, output, result, data）
+      if (['deliverable', 'report', 'output', 'result', 'data'].includes(k)) {
+        if (!isValidDeliverablePayload(v, depth + 1)) {
+          return false;
+        }
+      }
+      // 结构化集合字段
+      if (['findings', 'records', 'items', 'rows'].includes(k)) {
+        if (!Array.isArray(v) || v.length === 0 || !v.every(item => isValidStructuredItem(item))) {
+          return false;
+        }
+      }
+      // 代码问题列表
+      if (k === 'issues') {
+        if (!Array.isArray(v) || v.length === 0 || !isValidIssueList(v)) {
+          return false;
+        }
+      }
+      // 性能指标对象
+      if (['metrics', 'benchmark'].includes(k)) {
+        if (!isValidMetricsObject(v)) {
+          return false;
+        }
       }
     }
 
-    // 遍历所有白名单字段进行专门契约校验
-    return substantiveKeys.some(k => {
+    // 遍历所有白名单字段进行专门契约校验，确认显式提供的实质性键全部合法有效（Claude: some 改 every）
+    return substantiveKeys.every(k => {
       const v = val[k];
       if (v === null || v === undefined) return false;
       if (hasErrorFlag(v)) return false;
@@ -452,6 +605,19 @@ export async function validateDeliverableSchema(
     };
   }
 
+  // 0. 全局深度上限与循环引用前置拦截 (Fail-closed 防御超深与循环引用，必须在 computeSha256 之前执行)
+  if (!isWithinMaxDepth(payload, 0, 6)) {
+    errors.push('Payload exceeds maximum permitted nesting depth (6 levels) or contains cyclic reference');
+    return {
+      valid: false,
+      sha256Checksum: '0'.repeat(64),
+      verifiedCount: 0,
+      integrityScore: 0,
+      errors,
+      slaConformant: false
+    };
+  }
+
   const checksum = await computeSha256(payload);
 
   // 1. 全局深度递归错误标识拦截 (P0-A / P0-1)
@@ -484,13 +650,33 @@ export async function validateDeliverableSchema(
     } else {
       let defectiveCount = 0;
       payload.forEach((item) => {
-        if (!isValidStructuredItem(item)) {
+        if (!isValidStructuredItem(item, 0)) {
           defectiveCount++;
         }
       });
       if (defectiveCount > 0) {
         errors.push(`Detected ${defectiveCount} invalid/empty items among ${recordCount} records`);
         integrityScore = 0;
+      }
+      // 聚合级重复项检测 (Claude Spec P1-4 & DSH P0-1): 全数组 Map 频次统计，避免采样规避
+      if (hasExcessiveDuplicates(payload)) {
+        errors.push('Array payload consists of duplicate placeholder items exceeding allowable threshold');
+        integrityScore = 0;
+        recordCount = 0;
+      }
+      // 全量扫描顶层数组及其元素内部的所有嵌套集合数组 (PI P0-1 & DSH P0-A)
+      const allNestedArrays = extractAllCollectionArrays(payload, 0);
+      for (const rec of allNestedArrays) {
+        if (rec.arr.length === 0 && !['error', 'errors', 'warning', 'warnings'].includes(rec.key || '')) {
+          errors.push(`Found empty collection under '${rec.key}' in array payload`);
+          integrityScore = 0;
+          break;
+        }
+        if (rec.arr.some(subItem => !isValidCollectionItem(subItem, 1))) {
+          errors.push(`Found invalid collection items under '${rec.key}' in array payload`);
+          integrityScore = 0;
+          break;
+        }
       }
     }
   } else if (typeof payload === 'object') {
@@ -501,32 +687,38 @@ export async function validateDeliverableSchema(
       integrityScore = 0;
     } else {
       const foundCollection = extractCollectionArray(payload);
+      const allFoundArrays = extractAllCollectionArrays(payload);
 
-      // 集合数组逐元素强制有效性校验（消灭 some 旁路漏洞，P0-1）
-      if (foundCollection) {
-        if (foundCollection.length === 0) {
+      // 全局深度集合数组强制校验：扫描所有嵌套与包装层下的数组，消灭结构性穿透（P0-1 / C-1）
+      for (const record of allFoundArrays) {
+        const arr = record.arr;
+        const parentKey = record.key || '';
+        if (arr.length === 0) {
+          // 报告附带的合法诊断清空列表（如 error: [] / warnings: []）代表 0 报错，予以放行；其余业务集合为破损空数组
+          if (['error', 'errors', 'warning', 'warnings'].includes(parentKey)) {
+            continue;
+          }
           errors.push('Collection array contains 0 records');
           integrityScore = 0;
         } else {
           let defectiveCount = 0;
-          for (const item of foundCollection) {
-            if (!isValidStructuredItem(item)) {
+          for (const item of arr) {
+            if (isIssueItem(item)) {
+              if (!isValidIssueItem(item)) defectiveCount++;
+            } else if (!isValidStructuredItem(item)) {
               defectiveCount++;
             }
           }
           if (defectiveCount > 0) {
-            errors.push(`Detected ${defectiveCount} invalid/defective items in collection array of ${foundCollection.length} records`);
+            errors.push(`Detected ${defectiveCount} invalid/defective items in collection array of ${arr.length} records`);
             integrityScore = 0;
           }
         }
 
-        // 防刷屏去重校验：若元素超过 10 条且前 10 条完全相同，视为伪造占位符（P0-1）
-        if (foundCollection.length >= 10) {
-          const sample = foundCollection.slice(0, 10).map(i => JSON.stringify(i));
-          if (sample.every(s => s === sample[0])) {
-            errors.push('Collection array consists of identical duplicate placeholder items');
-            integrityScore = 0;
-          }
+        // 防刷屏去重校验 (Claude Spec P1-4 & DSH P0-1): 全数组 Map 频次统计，避免采样规避
+        if (hasExcessiveDuplicates(arr)) {
+          errors.push('Collection array consists of duplicate placeholder items exceeding allowable threshold');
+          integrityScore = 0;
         }
       }
 
@@ -546,7 +738,7 @@ export async function validateDeliverableSchema(
             integrityScore = 0;
             recordCount = foundCollection.length;
           } else {
-            recordCount = payload.verifiedCount;
+            recordCount = foundCollection.length;
           }
         } else {
           recordCount = 1;
@@ -605,8 +797,8 @@ export async function validateDeliverableSchema(
   return {
     valid,
     sha256Checksum: checksum,
-    verifiedCount: recordCount,
-    integrityScore,
+    verifiedCount: valid ? recordCount : 0,
+    integrityScore: valid ? integrityScore : 0,
     errors,
     slaConformant
   };

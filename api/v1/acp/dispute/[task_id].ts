@@ -105,8 +105,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(401).json({ success: false, error: { code: 'ACP_AUTH_FAILED', message: 'Invalid or missing authorization credentials' } });
     }
 
-    // Idempotent return if already in terminal state (disputed, refunded, verified)
-    if (taskRecord.status === 'disputed' || taskRecord.status === 'refunded' || taskRecord.status === 'verified') {
+    // Idempotent return if already in terminal state (disputed, refunded, verified, settled)
+    if (taskRecord.status === 'disputed' || taskRecord.status === 'refunded' || taskRecord.status === 'verified' || taskRecord.payoutStatus === 'settled') {
       return res.status(200).json({
         success: true,
         task_id: taskId,
@@ -159,6 +159,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .eq('id', taskId)
       .eq('version', currentVersion)
       .in('status', ['delivered', 'completed'])
+      .or('payoutStatus.is.null,payoutStatus.neq.settled')
       .select('id, status, disputeReason, arbitrationVerdict, updatedAt, version');
 
     if (updateErr) {

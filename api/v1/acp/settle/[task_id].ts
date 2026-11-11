@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'http';
-import { getSupabaseClient } from '../_supabase';
+import { getSupabaseClient } from '../_supabase.ts';
 
 interface VercelRequest extends IncomingMessage {
   query: Record<string, string | string[]>;
@@ -63,7 +63,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const { data: taskRecord, error: fetchErr } = await supabase
       .from('agent_tasks')
-      .select('id, status, taskToken, version')
+      .select('id, status, payoutStatus, budgetUsd, taskToken, version')
       .eq('id', taskId)
       .single();
 
@@ -89,14 +89,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(401).json({ success: false, error: { code: 'ACP_AUTH_FAILED', message: 'Invalid or missing authorization credentials' } });
     }
 
-    // Idempotent return if already verified
-    if (taskRecord.status === 'verified') {
+    // Idempotent return only if both verified and settled (Claude spec / DSH P1-3)
+    if (taskRecord.status === 'verified' && taskRecord.payoutStatus === 'settled') {
       return res.status(200).json({
         success: true,
         task_id: taskId,
         status: 'verified',
         meta: { idempotent_replay: true },
         message: 'Task is already verified and settled.'
+      });
+    }
+
+    // Block settlement on refunded tasks
+    if (taskRecord.status === 'refunded' || taskRecord.payoutStatus === 'refunded') {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'ACP_TASK_ALREADY_REFUNDED', message: 'Cannot settle a task that has already been refunded' }
       });
     }
 
@@ -116,34 +124,72 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    const now = new Date().toISOString();
-    const nextVersion = currentVersion + 1;
-    const { data: updatedRows, error: updateErr } = await supabase
-      .from('agent_tasks')
-      .update({
-        status: 'verified',
-        payoutStatus: 'settled',
-        updatedAt: now,
-        version: nextVersion
-      })
-      .eq('id', taskId)
-      .eq('version', currentVersion)
-      .in('status', ['delivered', 'completed'])
-      .select('id, status, updatedAt, version');
-
-    if (updateErr) {
-      return res.status(503).json({ success: false, error: { code: 'ACP_DB_UPDATE_ERROR', message: `Database update error: ${updateErr.message}`, retryable: true } });
+    const rawBudget = Number(taskRecord.budgetUsd);
+    if (!taskRecord.budgetUsd || !Number.isFinite(rawBudget) || isNaN(rawBudget) || rawBudget <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'ACP_INVALID_BUDGET', message: 'Task record lacks valid positive budgetUsd' }
+      });
     }
-    if (!updatedRows || updatedRows.length === 0) {
-      return res.status(409).json({ success: false, error: { code: 'ACP_SETTLEMENT_CONFLICT', message: 'Task state conflict during settlement' } });
+    const budgetAmount = rawBudget;
+
+    const rawCustomerAccepted = req.body?.customer_accepted;
+    if (rawCustomerAccepted !== undefined && typeof rawCustomerAccepted !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'ACP_INVALID_CUSTOMER_ACCEPTANCE',
+          message: 'customer_accepted must be a boolean'
+        }
+      });
+    }
+    const customerAccepted = rawCustomerAccepted === true;
+
+    // 1. Single Transaction Atomic RPC (Claude Mandate: Settle via acp_settle_task with T+1 hold)
+    const { data: rpcRes, error: rpcErr } = await (supabase as any).rpc('acp_settle_task', {
+      p_task_id: taskId,
+      p_expected_version: currentVersion,
+      p_amount: budgetAmount,
+      p_customer_accepted: customerAccepted
+    });
+
+    if (rpcErr) {
+      return res.status(503).json({
+        success: false,
+        error: { code: 'ACP_RPC_UNAVAILABLE', message: `Database settlement RPC unavailable: ${rpcErr.message}`, retryable: true }
+      });
     }
 
-    return res.status(200).json({
-      success: true,
-      task_id: taskId,
-      status: 'verified',
-      updated_at: now,
-      message: 'Escrow verification approved and payment released to developer.'
+    if (rpcRes) {
+      if (rpcRes.success) {
+        return res.status(200).json({
+          success: true,
+          task_id: taskId,
+          status: 'verified',
+          meta: rpcRes.idempotent ? { idempotent_replay: true } : undefined,
+          message: rpcRes.idempotent
+            ? 'Task payout is already recorded in ledger.'
+            : 'Escrow verification approved and payment released to developer.'
+        });
+      }
+      if (rpcRes.code === 'ACP_VERSION_CONFLICT') {
+        return res.status(409).json({ success: false, error: rpcRes });
+      }
+      if (rpcRes.code === 'ACP_T1_HOLD_ACTIVE') {
+        return res.status(409).json({ success: false, error: rpcRes });
+      }
+      if (rpcRes.code === 'ACP_SETTLEMENT_BLOCKED_BY_REFUND') {
+        return res.status(409).json({ success: false, error: rpcRes });
+      }
+      if (rpcRes.code === 'ACP_INVALID_BUDGET' || rpcRes.code === 'ACP_INVALID_SETTLEMENT_STATE' || rpcRes.code === 'ACP_ALREADY_SETTLED') {
+        return res.status(400).json({ success: false, error: rpcRes });
+      }
+      return res.status(400).json({ success: false, error: rpcRes });
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: { code: 'ACP_RPC_NO_RESPONSE', message: 'No response received from settlement RPC' }
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: { code: 'ACP_INTERNAL_ERROR', message: err?.message || 'Settlement error' } });

@@ -248,7 +248,8 @@ export async function verifyAndAcceptOrder(orderId: string): Promise<TaskOrder |
       headers: {
         'Content-Type': 'application/json',
         ...(order.taskToken ? { 'X-Task-Token': order.taskToken } : {})
-      }
+      },
+      body: JSON.stringify({ customer_accepted: true })
     });
     if (!resp.ok) {
       const errData = await resp.json().catch(() => ({}));
@@ -367,7 +368,11 @@ export async function refundDisputedOrder(orderId: string): Promise<TaskOrder | 
       headers: {
         'Content-Type': 'application/json',
         ...(order.taskToken ? { 'X-Task-Token': order.taskToken } : {})
-      }
+      },
+      body: JSON.stringify({
+        customer_rejected: true,
+        reason: order.disputeReason || 'Customer rejected deliverable'
+      })
     });
     if (!resp.ok) {
       const errData = await resp.json().catch(() => ({}));

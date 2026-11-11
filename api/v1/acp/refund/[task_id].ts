@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'http';
-import { getSupabaseClient } from '../_supabase';
+import { getSupabaseClient } from '../_supabase.ts';
 
 interface VercelRequest extends IncomingMessage {
   query: Record<string, string | string[]>;
@@ -71,7 +71,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const { data: taskRecord, error: fetchErr } = await supabase
       .from('agent_tasks')
-      .select('id, status, taskToken, budgetUsd, userEmail, version')
+      .select('id, status, payoutStatus, taskToken, budgetUsd, userEmail, version')
       .eq('id', taskId)
       .single();
 
@@ -122,8 +122,49 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // Cannot refund verified orders (funds already settled to developer)
-    if (taskRecord.status === 'verified') {
+    const isCustomerRejection = req.body?.customer_rejected === true;
+
+    // If task is settled, only permit clawback if explicitly requested via customer_rejected within dispute window
+    if (taskRecord.payoutStatus === 'settled' || taskRecord.status === 'verified') {
+      if (isCustomerRejection) {
+        const currentVersion = Number(taskRecord.version);
+        const { data: clawbackRes, error: clawbackErr } = await (supabase as any).rpc('acp_clawback_task', {
+          p_task_id: taskId,
+          p_expected_version: currentVersion,
+          p_reason: (req.body?.reason as string) || 'Customer rejected deliverable within dispute window'
+        });
+
+        if (clawbackErr) {
+          return res.status(503).json({
+            success: false,
+            error: { code: 'ACP_RPC_UNAVAILABLE', message: `Clawback RPC unavailable: ${clawbackErr.message}` }
+          });
+        }
+
+        if (clawbackRes && clawbackRes.success) {
+          return res.status(200).json({
+            success: true,
+            task_id: taskId,
+            status: 'disputed',
+            payout_status: 'clawed_back',
+            meta: { clawback: true },
+            message: 'Funds successfully clawed back from developer guarantee deposit.'
+          });
+        }
+
+        if (clawbackRes?.code === 'ACP_CLAWBACK_WINDOW_EXPIRED' || clawbackRes?.code === 'ACP_VERSION_CONFLICT') {
+          return res.status(409).json({
+            success: false,
+            error: clawbackRes
+          });
+        }
+
+        return res.status(400).json({
+          success: false,
+          error: clawbackRes || { code: 'ACP_CLAWBACK_REJECTED', message: 'Failed to claw back funds from settled task' }
+        });
+      }
+
       return res.status(400).json({
         success: false,
         error: {
@@ -133,8 +174,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // Only allow refunding orders that are in disputed, failed, or escrowed state
-    if (!['disputed', 'failed', 'escrowed'].includes(taskRecord.status)) {
+    // Customer rejection allows refund directly from delivered, disputed, failed, or escrowed
+    const allowableStates = ['disputed', 'failed', 'escrowed', 'delivered'];
+    if (!allowableStates.includes(taskRecord.status)) {
       return res.status(400).json({
         success: false,
         error: {
@@ -153,41 +195,45 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const now = new Date().toISOString();
-    const nextVersion = currentVersion + 1;
-    const { data: updatedRows, error: updateErr } = await supabase
-      .from('agent_tasks')
-      .update({
-        status: 'refunded',
-        payoutStatus: 'refunded',
-        updatedAt: now,
-        version: nextVersion
-      })
-      .eq('id', taskId)
-      .eq('version', currentVersion)
-      .in('status', ['disputed', 'failed', 'escrowed'])
-      .select('id, status, version');
+    // Single-transaction acp_refund_task RPC (Claude Spec: Single TX CAS + Ledger)
+    const { data: rpcRes, error: rpcErr } = await (supabase as any).rpc('acp_refund_task', {
+      p_task_id: taskId,
+      p_expected_version: currentVersion,
+      p_reason: (req.body?.reason as string) || null
+    });
 
-    if (updateErr) {
+    if (rpcErr) {
       return res.status(503).json({
         success: false,
-        error: { code: 'ACP_DB_UPDATE_ERROR', message: `Database update error: ${updateErr.message}`, retryable: true }
-      });
-    }
-    if (!updatedRows || updatedRows.length === 0) {
-      return res.status(409).json({
-        success: false,
-        error: {
-          code: 'ACP_REFUND_CONFLICT',
-          message: 'Concurrent modification: task status moved before refund could execute'
-        }
+        error: { code: 'ACP_RPC_UNAVAILABLE', message: `Database refund RPC unavailable: ${rpcErr.message}`, retryable: true }
       });
     }
 
-    return res.status(200).json({
-      success: true,
-      task_id: taskId,
-      status: 'refunded',
-      refunded_at: now
+    if (rpcRes) {
+      if (rpcRes.success) {
+        return res.status(200).json({
+          success: true,
+          task_id: taskId,
+          status: 'refunded',
+          meta: rpcRes.idempotent ? { idempotent_replay: true } : undefined,
+          refunded_at: now
+        });
+      }
+      if (rpcRes.code === 'ACP_VERSION_CONFLICT') {
+        return res.status(409).json({ success: false, error: rpcRes });
+      }
+      if (rpcRes.code === 'ACP_REFUND_BLOCKED_BY_SETTLEMENT') {
+        return res.status(409).json({ success: false, error: rpcRes });
+      }
+      if (rpcRes.code === 'ACP_INVALID_REFUND_STATE' || rpcRes.code === 'ACP_ALREADY_REFUNDED') {
+        return res.status(400).json({ success: false, error: rpcRes });
+      }
+      return res.status(400).json({ success: false, error: rpcRes });
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: { code: 'ACP_RPC_NO_RESPONSE', message: 'No response received from refund RPC' }
     });
   } catch (err: any) {
     return res.status(500).json({
