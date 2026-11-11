@@ -9,7 +9,7 @@
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
-    "test": "node --test tests/acp_contract.test.mjs"
+    "test": "node --test tests/acp_contract.test.mjs tests/keepalive.test.mjs"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.4",

@@ -1,0 +1,31 @@
+name: Supabase Trickle Keep-Alive
+
+on:
+  schedule:
+    # Twice weekly at 03:00 UTC to keep Free-tier Supabase project active
+    - cron: '0 3 * * 1,4'
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    name: Ping AgentUniver Keep-Alive Endpoint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Keep-Alive Probe
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          AUTH_ARGS=()
+          if [ -n "${CRON_SECRET}" ]; then
+            AUTH_ARGS=(-H "Authorization: Bearer ${CRON_SECRET}")
+          fi
+          STATUS_CODE=$(curl -sS -o /tmp/keepalive.json -w "%{http_code}" \
+            "${AUTH_ARGS[@]}" \
+            "https://www.agentuniver.com/api/v1/keepalive")
+          cat /tmp/keepalive.json
+          echo ""
+          echo "HTTP Status: ${STATUS_CODE}"
+          if [ "${STATUS_CODE}" -ne 200 ]; then
+            echo "Keep-alive probe failed with status ${STATUS_CODE}"
+            exit 1
+          fi

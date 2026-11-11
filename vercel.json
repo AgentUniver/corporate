@@ -3,6 +3,12 @@
   "framework": "astro",
   "buildCommand": "pnpm run build",
   "outputDirectory": "dist",
+  "crons": [
+    {
+      "path": "/api/v1/keepalive",
+      "schedule": "0 3 * * *"
+    }
+  ],
   "rewrites": [
     { "source": "/acp", "destination": "/api/v1/acp" },
     { "source": "/acp/:path*", "destination": "/api/v1/acp/:path*" },

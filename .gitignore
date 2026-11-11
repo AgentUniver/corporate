@@ -5,6 +5,7 @@ dist/
 .env.local
 .DS_Store
 docs/
+supabase/.temp/
 
 # Python cache & environments
 __pycache__/
