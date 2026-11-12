@@ -1,5 +1,55 @@
 import type { IncomingMessage, ServerResponse } from 'http';
-import { getSupabaseClient } from './acp/_supabase.ts';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+
+const ACTIVE_PROJECT_REF = 'rorfuxoelnylsvpinzbo';
+let _cachedClient: SupabaseClient | null = null;
+
+function getSanitizedSupabaseUrl(rawUrl?: string): string | null {
+  if (!rawUrl) return null;
+  let url = rawUrl.trim();
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = 'https://' + url;
+  }
+  url = url.replace(/^http:\/\//i, 'https://');
+  url = url.replace('https://db.', 'https://');
+  if (url.includes('lbkhvciymyzzjijuhbri')) {
+    url = url.replace('lbkhvciymyzzjijuhbri', ACTIVE_PROJECT_REF);
+  }
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+// Self-contained client lookup avoids relative .ts imports that fail under Vercel Node ESM.
+function resolveSupabaseClient(): SupabaseClient | null {
+  const testClient = (globalThis as Record<string, unknown>).__agentuniverTestSupabaseClient as SupabaseClient | null | undefined;
+  if (testClient !== undefined) {
+    return testClient;
+  }
+  if (_cachedClient) return _cachedClient;
+
+  const rawUrl = process.env.SUPABASE_URL || process.env.PUBLIC_SUPABASE_URL;
+  const cleanUrl = getSanitizedSupabaseUrl(rawUrl);
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SERVICE_KEY ||
+    process.env.SUPABASE_KEY;
+
+  if (!cleanUrl || !key) {
+    return null;
+  }
+
+  try {
+    _cachedClient = createClient(cleanUrl, key, { auth: { persistSession: false } });
+    return _cachedClient;
+  } catch (err) {
+    console.warn('[KeepAlive] Failed to initialize Supabase client safely:', err);
+    return null;
+  }
+}
 
 interface VercelRequest extends IncomingMessage {
   method?: string;
@@ -47,7 +97,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 
-  const supabase = getSupabaseClient();
+  const supabase = resolveSupabaseClient();
   if (!supabase) {
     return res.status(503).json({
       ok: false,

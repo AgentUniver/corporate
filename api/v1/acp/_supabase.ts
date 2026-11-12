@@ -54,4 +54,5 @@ export function getSupabaseClient(): SupabaseClient | null {
 
 export function setSupabaseClientForTesting(client: SupabaseClient | null): void {
   _cachedClient = client;
+  (globalThis as Record<string, unknown>).__agentuniverTestSupabaseClient = client;
 }
